@@ -156,6 +156,8 @@ async def analyze(
     flagged_codes = result["flagged_codes"]
     today = result["analysis_today"]
 
+    ai_res = result["ai_result"]
+
     return {
         "flagged_count":   len(flagged_codes),
         "total_q_count":   len(summary_reports),
@@ -165,4 +167,7 @@ async def analyze(
         "kakao_message":   _build_kakao_message(product_type_kr, today, summary_reports),
         "parse_errors":    result["parse_errors"],
         "warnings":        result["retry_warnings"],
+        "verdict":         ai_res.get("health_verdict") or ai_res.get("simple_verdict", ""),
+        "verdict_reason":  ai_res.get("health_reason") or ai_res.get("simple_reason", ""),
+        "recommend":       ai_res.get("recommend", ""),
     }

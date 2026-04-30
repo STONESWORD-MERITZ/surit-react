@@ -1,26 +1,20 @@
 @import "tailwindcss";
 
 @theme {
-  --color-navy: #0a1628;
-  --color-navy-light: #112a52;
-  --color-navy-card: rgba(255, 255, 255, 0.05);
-  --color-navy-border: rgba(255, 255, 255, 0.1);
-  --color-accent: #3b82f6;
-  --color-accent-light: #60a5fa;
-  --color-accent-dim: #93c5fd;
-}
-
-@font-face {
-  font-family: 'Noto Sans KR';
-  font-display: swap;
-  src: local('Noto Sans KR');
+  --color-indigo: #4F46E5;
+  --color-indigo-hover: #4338CA;
+  --color-indigo-light: #EEF2FF;
+  --color-bg: #F8F9FC;
+  --color-surface: #FFFFFF;
+  --color-text: #1F2937;
+  --color-text-sub: #6B7280;
 }
 
 body {
   margin: 0;
   font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif;
-  background: #0a1628;
-  color: rgba(255, 255, 255, 0.88);
+  background: #F8F9FC;
+  color: #1F2937;
   -webkit-font-smoothing: antialiased;
 }
 
