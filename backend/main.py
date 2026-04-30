@@ -1,16 +1,11 @@
-import sys
 import os
 import re
-from pathlib import Path
 from datetime import date
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-# surit/analyzer.py 참조
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "surit"))
-
-from analyzer import run_analysis, AnalysisError  # noqa: E402
+from analyzer import run_analysis, AnalysisError
 
 app = FastAPI(title="SURIT React Backend", version="1.0.0")
 
