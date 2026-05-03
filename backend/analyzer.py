@@ -216,12 +216,40 @@ def _open_pdf(data, bdate_str):
     raise ValueError("PDF 비밀번호 해제 실패 — 생년월일을 확인해 주세요.")
 
 
+_DRUG_SUFFIX_RE = re.compile(
+    r'(정|캡슐|캡|앰플|바이알|시럽|액|필름코팅정|서방정|장용정|현탁액|연질캡슐'
+    r'|구강붕해정|설하정|츄어블정|패치|주사|크림|겔|연고|점안액|점비액)\s*$',
+    flags=re.IGNORECASE
+)
+_DRUG_PAREN_RE = re.compile(r'\([^)]*\)')
+_DRUG_MAKER_RE = re.compile(
+    r'(한미|대웅|유한|종근당|동아|일동|보령|녹십자|삼성|JW|CJ|GSK|화이자|노바티스'
+    r'|아스트라제네카|사노피|MSD|릴리|바이엘|로슈|한국|제일|경동|환인|명인|광동'
+    r'|HK|SK|LG|셀트리온|삼진|국제|영진|안국|태극|코오롱|대원|신풍|동국)\s*제약?\s*',
+    flags=re.IGNORECASE
+)
+_DOSE_UNIT_TO_MG = {"mg": 1.0, "g": 1000.0, "mcg": 0.001, "ug": 0.001, "iu": 0.001, "ml": 1.0}
+
+
 @functools.lru_cache(maxsize=1024)
 def extract_drug_info(name: str):
-    """(성분명, 용량_mg) 튜플 반환. 용량 없으면 0"""
+    """(정규화된 성분명, 용량_mg) 튜플 반환. 용량 없으면 0"""
+    # 용량 추출 및 mg 단위 환산
     dose_match = re.search(r'(\d+(?:\.\d+)?)\s*(mg|mcg|ml|g|ug|IU)', name, flags=re.IGNORECASE)
-    dose = float(dose_match.group(1)) if dose_match else 0.0
-    base = re.sub(r'\d+(\.\d+)?\s*(mg|mcg|ml|g|ug|IU|정|캡|앰|바이알)', '', name, flags=re.IGNORECASE).strip()
+    if dose_match:
+        raw_dose = float(dose_match.group(1))
+        unit = dose_match.group(2).lower()
+        dose = raw_dose * _DOSE_UNIT_TO_MG.get(unit, 1.0)
+    else:
+        dose = 0.0
+
+    # 성분명 정규화: 숫자+단위 제거 → 괄호 제거 → 제형 suffix 제거 → 제조사 제거
+    base = re.sub(r'\d+(\.\d+)?\s*(mg|mcg|ml|g|ug|IU)', '', name, flags=re.IGNORECASE)
+    base = _DRUG_PAREN_RE.sub('', base)
+    base = _DRUG_SUFFIX_RE.sub('', base)
+    base = _DRUG_MAKER_RE.sub('', base)
+    # 공백/특수문자 정리 후 소문자 표준화
+    base = re.sub(r'[\s\-_/·]+', '', base).lower().strip()
     return base, dose
 
 
@@ -407,9 +435,10 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
     df = pd.DataFrame(all_records)
     disease_stats = defaultdict(new_disease)
 
-    # ── 날짜 파싱 실패 추적 ──────────────────────────────────────
+    # ── 날짜 파싱 실패/미래일자 추적 ────────────────────────────
     date_parse_fail_count = 0
     date_parse_fail_samples = []
+    future_date_count = 0
 
     # ── disease_stats 구축 ────────────────────────────────────────
     for _, row in df.iterrows():
@@ -451,10 +480,19 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             dt = datetime.strptime(clean_date, "%Y-%m-%d")
             days_ago = (today - dt).days
 
+            # 미래 날짜 제외 (OCR 오류 가능)
+            if days_ago < 0:
+                future_date_count += 1
+                continue
+
             if ftype in ("basic", "unknown"):
                 is_inpatient = "입원" in in_out or "입원" in name_str
                 if is_inpatient:
                     s["inpatient_dates"].add(clean_date)
+                    # 실제 요양일수 필드가 있으면 입원일수로 사용
+                    if m_days > 1:
+                        prev_inp = s.get("_inpatient_actual_days", 0)
+                        s["_inpatient_actual_days"] = max(prev_inp, m_days)
                 else:
                     s["visit_dates"].add(clean_date)
                 if m_days > 0:
@@ -482,6 +520,9 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             elif ftype == "nhis":
                 if in_out == "입원":
                     s["inpatient_dates"].add(clean_date)
+                    if m_days > 1:
+                        prev_inp = s.get("_inpatient_actual_days", 0)
+                        s["_inpatient_actual_days"] = max(prev_inp, m_days)
                 elif in_out == "약국":
                     s["has_pharma"] = True
                 else:
@@ -508,12 +549,16 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
         if name_str and not s["name"]:
             s["name"] = name_str
 
-    # ── 날짜 파싱 실패 경고 ─────────────────────────────────────
+    # ── 날짜 파싱 실패/미래일자 경고 ─────────────────────────────
     if date_parse_fail_count > 0:
         sample_text = ", ".join(date_parse_fail_samples[:3])
         parse_errors.append(
             f"⚠️ 날짜 인식 실패 {date_parse_fail_count}건 (예: {sample_text}) — "
             f"해당 레코드의 기간 판정이 누락될 수 있습니다."
+        )
+    if future_date_count > 0:
+        parse_errors.append(
+            f"⚠️ 미래 날짜 {future_date_count}건 감지 (OCR 오류 가능) — 해당 레코드를 제외했습니다."
         )
 
     # ── 코드 기반 결정론적 알릴의무 ──────────────────────────────
@@ -549,6 +594,9 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
         surg_10y = _dts_in_range(_s["surgery_dates"], _d10y_dt)
         all_5y   = _dts_in_range(_s["visit_dates"] | _s["inpatient_dates"] | _s["surgery_dates"], _d5y_dt)
         inp_5y   = _dts_in_range(_s["inpatient_dates"], _d5y_dt)
+        # 실제 입원일수: 필드값 우선, 없으면 이벤트 수 fallback
+        _actual_inp_days = _s.get("_inpatient_actual_days", 0)
+        _inp_days_val = _actual_inp_days if _actual_inp_days > 0 else len(inp_10y)
         surg_5y  = _dts_in_range(_s["surgery_dates"], _d5y_dt)
         presc_10y = _max_presc(_med, _d10y_dt)
         _sn = next(iter(_s["surgeries"]), None)
@@ -557,40 +605,43 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
                else "mid")
 
         if inp_3m:
-            code_based_items.append(_ci("Q1", f"3개월 이내 입원 ({len(inp_3m)}회) — 기본진료 확정",
-                date=max(inp_3m), is_inp=True, inp_days=len(inp_3m), weight=_wt))
+            _inp3m_days = _actual_inp_days if _actual_inp_days > 0 else len(inp_3m)
+            code_based_items.append(_ci("Q1", f"3개월 이내 입원 ({_inp3m_days}일) — 기본진료 확정",
+                date=max(inp_3m), is_inp=True, inp_days=_inp3m_days, weight=_wt))
         if surg_3m:
             code_based_items.append(_ci("Q1", f"3개월 이내 수술: {_sn or '수술'} — 세부진료 확정",
                 date=max(surg_3m), is_surg=True, surg_name=_sn, weight=_wt))
 
         if product_type == "간편심사 (유병자 3-5-5 기준)":
             if inp_10y:
-                code_based_items.append(_ci("Q2", f"10년 이내 입원 ({len(inp_10y)}회) — 기본진료 확정",
-                    date=max(inp_10y), is_inp=True, inp_days=len(inp_10y), weight=_wt))
+                code_based_items.append(_ci("Q2", f"10년 이내 입원 ({_inp_days_val}일) — 기본진료 확정",
+                    date=max(inp_10y), is_inp=True, inp_days=_inp_days_val, weight=_wt))
             if surg_10y:
                 code_based_items.append(_ci("Q2", f"10년 이내 수술: {_sn or '수술'} — 세부진료 확정",
-                    date=max(surg_10y), is_inp=bool(inp_10y), inp_days=len(inp_10y),
+                    date=max(surg_10y), is_inp=bool(inp_10y), inp_days=_inp_days_val,
                     is_surg=True, surg_name=_sn, weight=_wt))
             if _code_in(_dc, SIMPLE_Q3_CODES) and all_5y:
+                _inp5y_days = _actual_inp_days if _actual_inp_days > 0 else len(inp_5y)
                 code_based_items.append(_ci("Q3", f"5년 이내 6대 중증질환: {_nm} (코드: {_dc})",
-                    date=max(all_5y), is_inp=bool(inp_5y), inp_days=len(inp_5y),
+                    date=max(all_5y), is_inp=bool(inp_5y), inp_days=_inp5y_days,
                     is_surg=bool(surg_5y), surg_name=_sn if surg_5y else None, weight="critical"))
         else:
             if inp_10y:
-                code_based_items.append(_ci("Q4", f"10년 이내 입원 ({len(inp_10y)}회) — 기본진료 확정",
-                    date=max(inp_10y), is_inp=True, inp_days=len(inp_10y),
+                code_based_items.append(_ci("Q4", f"10년 이내 입원 ({_inp_days_val}일) — 기본진료 확정",
+                    date=max(inp_10y), is_inp=True, inp_days=_inp_days_val,
                     med_days=presc_10y, weight=_wt))
             if surg_10y:
                 code_based_items.append(_ci("Q4", f"10년 이내 수술: {_sn or '수술'} — 세부진료 확정",
-                    date=max(surg_10y), is_inp=bool(inp_10y), inp_days=len(inp_10y),
+                    date=max(surg_10y), is_inp=bool(inp_10y), inp_days=_inp_days_val,
                     is_surg=True, surg_name=_sn, med_days=presc_10y, weight=_wt))
             if presc_10y >= 30 and not inp_10y and not surg_10y:
                 src = "처방조제 확정" if _s.get("has_pharma") and _s["med_dates_pharma"] else "기본진료"
                 code_based_items.append(_ci("Q4", f"10년 이내 30일이상 투약 ({presc_10y}일) — {src}",
                     med_days=presc_10y, weight=_wt))
             if _code_in(_dc, HEALTH_Q5_CODES) and all_5y:
+                _inp5y_days = _actual_inp_days if _actual_inp_days > 0 else len(inp_5y)
                 code_based_items.append(_ci("Q5", f"5년 이내 중증질환: {_nm} (코드: {_dc})",
-                    date=max(all_5y), is_inp=bool(inp_5y), inp_days=len(inp_5y),
+                    date=max(all_5y), is_inp=bool(inp_5y), inp_days=_inp5y_days,
                     is_surg=bool(surg_5y), surg_name=_sn if surg_5y else None,
                     weight="critical" if _wt == "critical" else "high"))
 
@@ -616,10 +667,12 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
         if ftype == "detail":
             act_name_raw = get_val(row, ["행위명칭", "행위명", "진료내역", "처치"])
             display_name = name_str[:20]
-            dedup_key = (code_str + "|" + (act_name_raw or name_str)[:15], date_str)
+            act_norm = re.sub(r"[\s\d]", "", (act_name_raw or ""))[:15]
+            dedup_key = (code_str, date_str, ftype, act_norm)
         else:
             display_name = name_str[:20]
-            dedup_key = (code_str or name_str[:10], date_str)
+            name_norm_dedup = re.sub(r"[\s\d]", "", name_str)[:15]
+            dedup_key = (code_str or name_norm_dedup, date_str, ftype, "")
         if dedup_key in seen_code_dates:
             continue
         seen_code_dates.add(dedup_key)
@@ -814,7 +867,7 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             filtered_lines.append(line)
             continue
         days_ago = (today - dt).days
-        if days_ago > 3650:
+        if days_ago < 0 or days_ago > 3650:
             continue
         tags = []
         if days_ago <= 90:   tags.append("IN_3M")
