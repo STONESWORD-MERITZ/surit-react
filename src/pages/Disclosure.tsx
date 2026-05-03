@@ -30,29 +30,6 @@ type AnalyzeResult = {
   recommend: string;
 };
 
-function VerdictCard({ result }: { result: AnalyzeResult }) {
-  const v = result.verdict;
-  const cfg =
-    v === "가능"
-      ? { bg: "bg-emerald-50", text: "text-emerald-700", icon: "✅", label: "인수 가능" }
-      : v === "불가"
-        ? { bg: "bg-red-50", text: "text-red-700", icon: "❌", label: "인수 거절" }
-        : { bg: "bg-amber-50", text: "text-amber-700", icon: "⚠️", label: "조건부 인수" };
-
-  return (
-    <div className={`${cfg.bg} rounded-2xl p-6 shadow-[0_2px_12px_rgba(0,0,0,0.06)] mb-6`}>
-      <div className="flex items-center gap-3 mb-2">
-        <span className="text-3xl">{cfg.icon}</span>
-        <span className={`text-2xl font-extrabold ${cfg.text}`}>{cfg.label}</span>
-      </div>
-      <p className={`text-sm ${cfg.text} opacity-80`}>{result.verdict_reason}</p>
-      {result.recommend && (
-        <p className="text-xs text-gray-400 mt-2">추천: {result.recommend}</p>
-      )}
-    </div>
-  );
-}
-
 function CollapsibleSection({
   title,
   badge,
@@ -256,24 +233,29 @@ export default function Disclosure() {
       {/* 결과 */}
       {result && (
         <div>
-          {/* 판정 카드 */}
-          <VerdictCard result={result} />
-
           {/* 카카오톡 복사 (설계매니저 전송용) */}
           {result.kakao_message && (
-            <button
-              onClick={handleCopy}
-              className="w-full flex items-center justify-center gap-2 mb-6 py-3.5 rounded-xl font-bold text-sm transition-colors shadow-[0_2px_8px_rgba(0,0,0,0.08)]"
-              style={{ background: "#FEE500", color: "#191919" }}
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path
-                  d="M9 1C4.58 1 1 3.8 1 7.24c0 2.22 1.48 4.17 3.7 5.27l-.94 3.47c-.08.3.26.54.52.36L8.05 13.7c.31.03.63.05.95.05 4.42 0 8-2.8 8-6.24S13.42 1 9 1Z"
-                  fill="#191919"
-                />
-              </svg>
-              {copied ? "복사 완료!" : "병력 고지 카카오톡 복사하기"}
-            </button>
+            <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] mb-6 overflow-hidden">
+              <div className="px-5 py-4 flex items-center justify-between">
+                <span className="text-sm font-bold text-gray-800">카카오톡 전송용 메시지</span>
+                <button
+                  onClick={handleCopy}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-sm transition-colors"
+                  style={{ background: "#FEE500", color: "#191919" }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+                    <path
+                      d="M9 1C4.58 1 1 3.8 1 7.24c0 2.22 1.48 4.17 3.7 5.27l-.94 3.47c-.08.3.26.54.52.36L8.05 13.7c.31.03.63.05.95.05 4.42 0 8-2.8 8-6.24S13.42 1 9 1Z"
+                      fill="#191919"
+                    />
+                  </svg>
+                  {copied ? "복사 완료!" : "복사하기"}
+                </button>
+              </div>
+              <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed bg-gray-50 px-5 py-4 mx-0">
+                {result.kakao_message}
+              </pre>
+            </div>
           )}
 
           {/* 요약 수치 */}
@@ -386,14 +368,6 @@ export default function Disclosure() {
             </div>
           )}
 
-          {/* 카카오톡 메시지 미리보기 */}
-          {result.kakao_message && (
-            <CollapsibleSection title="카카오톡 메시지 미리보기">
-              <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed bg-gray-50 rounded-xl p-4">
-                {result.kakao_message}
-              </pre>
-            </CollapsibleSection>
-          )}
         </div>
       )}
 
