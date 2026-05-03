@@ -12,39 +12,24 @@ from google import genai
 from google.genai import types
 
 # ==========================================
-# 상수
+# 키워드 로딩 (keywords.json 외부화)
 # ==========================================
-surg_keywords = ["수술","절제","시술","천자","주입","절개","적출","봉합","결찰","종양","폴립","결절","치환","이식","절단","재건","거상","관혈","제거","소작","배농","레이저","냉동"]
-surg_negative_keywords = ["상담","검사","판독","초음파","촬영","조직검사","생검","X-RAY","X-ray","MRI","CT","단순처치","소독","드레싱","교육","관찰","진찰","재진","문진","평가","측정"]
-test_keywords = ["검사","초음파","내시경","촬영","MRI","CT","조직","생검","판독","X-RAY","X-ray","엑스레이"]
-nhis_surg_keywords = ["매복","발치","치핵","치루","충수","탈장","담석","담낭","제왕절개","루봉합","루절제","치아이식"]
+_KW_PATH = os.path.join(os.path.dirname(__file__), "keywords.json")
 
-SIMPLE_Q3_CODES = (
-    "C",
-    "I60","I61","I62","I63","I64",
-    "I20","I21","I22",
-    "I05","I06","I07","I08","I09","I34","I35","I36","I37","I38","I39",
-    "K74",
-)
-HEALTH_Q5_CODES = (
-    "C",
-    "I10","I11","I12","I13","I14","I15",
-    "I20","I21","I22",
-    "I05","I06","I07","I08","I09","I34","I35","I36","I37","I38","I39",
-    "I60","I61","I62","I63","I64",
-    "K74",
-    "E10","E11","E12","E13","E14",
-    "B24",
-)
-SIMPLE_Q3_ALLOWED_PREFIXES = (
-    "C",
-    "I60","I61","I62",
-    "I63","I64",
-    "I20",
-    "I21","I22",
-    "I05","I06","I07","I08","I09","I34","I35","I36","I37","I38","I39",
-    "K74",
-)
+def _load_keywords():
+    with open(_KW_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+_KW = _load_keywords()
+
+surg_keywords          = _KW["surg_keywords"]
+surg_negative_keywords = _KW["surg_negative_keywords"]
+test_keywords          = _KW["test_keywords"]
+nhis_surg_keywords     = _KW["nhis_surg_keywords"]
+SIMPLE_Q3_CODES            = tuple(_KW["simple_q3_codes"])
+HEALTH_Q5_CODES            = tuple(_KW["health_q5_codes"])
+SIMPLE_Q3_ALLOWED_PREFIXES = tuple(_KW["simple_q3_allowed_prefixes"])
+_FTYPE_KW                  = _KW["detect_file_type_keywords"]
 
 # ==========================================
 # 헬퍼 함수
@@ -95,19 +80,12 @@ def detect_file_type(headers):
     h_joined = " ".join(str(h) for h in headers)
     h_norm = h_joined.replace(" ", "").replace("\n", "")
 
-    # 1차: 키워드 사전 (동의어/띄어쓰기/줄바꿈 변형 포함)
-    basic_kws = ["상병명", "상병코드", "진단코드", "내원일수", "진료개시일", "입내원구분",
-                 "요양일수", "진료시작일", "주상병", "부상병", "상병기호"]
-    detail_kws = ["진료내역", "행위명", "처치", "수술", "행위명칭", "진료내역구분",
-                  "급여비총액", "비급여", "행위코드", "수가코드"]
-    pharma_kws = ["약품명", "투약일수", "조제", "처방조제", "약품코드", "1회투약량",
-                  "총투여일수", "약국", "처방일", "조제일자"]
-
-    if any(k in h_joined or k in h_norm for k in basic_kws):
+    # 1차: 키워드 사전 (keywords.json 외부화)
+    if any(k in h_joined or k in h_norm for k in _FTYPE_KW["basic"]):
         return "basic"
-    if any(k in h_joined or k in h_norm for k in detail_kws):
+    if any(k in h_joined or k in h_norm for k in _FTYPE_KW["detail"]):
         return "detail"
-    if any(k in h_joined or k in h_norm for k in pharma_kws):
+    if any(k in h_joined or k in h_norm for k in _FTYPE_KW["pharma"]):
         return "pharma"
 
     # 2차: 행 데이터 패턴 기반 추론 (컬럼 수, 날짜/코드 패턴)
@@ -578,6 +556,7 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
 
         def _ci(q, reason, date="", is_inp=False, inp_days=0,
                 is_surg=False, surg_name=None, med_days=0, weight="mid",
+                rule_id="", evidence=None,
                 _dc=_dc, _nm=_nm, _hp=_hp, _s=_s):
             return {
                 "date": date or _s.get("latest_date",""),
@@ -586,6 +565,8 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
                 "is_inpatient": is_inp, "inpatient_days": inp_days,
                 "is_surgery": is_surg, "surgery_name": surg_name,
                 "med_days": med_days, "weight": weight, "_source": "code",
+                "_rule_id": rule_id,
+                "_evidence": evidence or {},
             }
 
         inp_3m   = _dts_in_range(_s["inpatient_dates"], _d3m_dt)
@@ -607,43 +588,52 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
         if inp_3m:
             _inp3m_days = _actual_inp_days if _actual_inp_days > 0 else len(inp_3m)
             code_based_items.append(_ci("Q1", f"3개월 이내 입원 ({_inp3m_days}일) — 기본진료 확정",
-                date=max(inp_3m), is_inp=True, inp_days=_inp3m_days, weight=_wt))
+                date=max(inp_3m), is_inp=True, inp_days=_inp3m_days, weight=_wt,
+                rule_id="R-Q1-INP-3M", evidence={"dates": inp_3m, "actual_days": _inp3m_days}))
         if surg_3m:
             code_based_items.append(_ci("Q1", f"3개월 이내 수술: {_sn or '수술'} — 세부진료 확정",
-                date=max(surg_3m), is_surg=True, surg_name=_sn, weight=_wt))
+                date=max(surg_3m), is_surg=True, surg_name=_sn, weight=_wt,
+                rule_id="R-Q1-SURG-3M", evidence={"dates": surg_3m, "surgery": _sn}))
 
         if product_type == "간편심사 (유병자 3-5-5 기준)":
             if inp_10y:
                 code_based_items.append(_ci("Q2", f"10년 이내 입원 ({_inp_days_val}일) — 기본진료 확정",
-                    date=max(inp_10y), is_inp=True, inp_days=_inp_days_val, weight=_wt))
+                    date=max(inp_10y), is_inp=True, inp_days=_inp_days_val, weight=_wt,
+                    rule_id="R-Q2-INP-10Y", evidence={"dates": inp_10y, "actual_days": _inp_days_val}))
             if surg_10y:
                 code_based_items.append(_ci("Q2", f"10년 이내 수술: {_sn or '수술'} — 세부진료 확정",
                     date=max(surg_10y), is_inp=bool(inp_10y), inp_days=_inp_days_val,
-                    is_surg=True, surg_name=_sn, weight=_wt))
+                    is_surg=True, surg_name=_sn, weight=_wt,
+                    rule_id="R-Q2-SURG-10Y", evidence={"dates": surg_10y, "surgery": _sn}))
             if _code_in(_dc, SIMPLE_Q3_CODES) and all_5y:
                 _inp5y_days = _actual_inp_days if _actual_inp_days > 0 else len(inp_5y)
                 code_based_items.append(_ci("Q3", f"5년 이내 6대 중증질환: {_nm} (코드: {_dc})",
                     date=max(all_5y), is_inp=bool(inp_5y), inp_days=_inp5y_days,
-                    is_surg=bool(surg_5y), surg_name=_sn if surg_5y else None, weight="critical"))
+                    is_surg=bool(surg_5y), surg_name=_sn if surg_5y else None, weight="critical",
+                    rule_id="R-Q3-CRITICAL-5Y", evidence={"code": _dc, "matched_prefix": "SIMPLE_Q3_CODES"}))
         else:
             if inp_10y:
                 code_based_items.append(_ci("Q4", f"10년 이내 입원 ({_inp_days_val}일) — 기본진료 확정",
                     date=max(inp_10y), is_inp=True, inp_days=_inp_days_val,
-                    med_days=presc_10y, weight=_wt))
+                    med_days=presc_10y, weight=_wt,
+                    rule_id="R-Q4-INP-10Y", evidence={"dates": inp_10y, "actual_days": _inp_days_val}))
             if surg_10y:
                 code_based_items.append(_ci("Q4", f"10년 이내 수술: {_sn or '수술'} — 세부진료 확정",
                     date=max(surg_10y), is_inp=bool(inp_10y), inp_days=_inp_days_val,
-                    is_surg=True, surg_name=_sn, med_days=presc_10y, weight=_wt))
+                    is_surg=True, surg_name=_sn, med_days=presc_10y, weight=_wt,
+                    rule_id="R-Q4-SURG-10Y", evidence={"dates": surg_10y, "surgery": _sn}))
             if presc_10y >= 30 and not inp_10y and not surg_10y:
                 src = "처방조제 확정" if _s.get("has_pharma") and _s["med_dates_pharma"] else "기본진료"
                 code_based_items.append(_ci("Q4", f"10년 이내 30일이상 투약 ({presc_10y}일) — {src}",
-                    med_days=presc_10y, weight=_wt))
+                    med_days=presc_10y, weight=_wt,
+                    rule_id="R-Q4-MED-30D", evidence={"presc_days": presc_10y, "source": src}))
             if _code_in(_dc, HEALTH_Q5_CODES) and all_5y:
                 _inp5y_days = _actual_inp_days if _actual_inp_days > 0 else len(inp_5y)
                 code_based_items.append(_ci("Q5", f"5년 이내 중증질환: {_nm} (코드: {_dc})",
                     date=max(all_5y), is_inp=bool(inp_5y), inp_days=_inp5y_days,
                     is_surg=bool(surg_5y), surg_name=_sn if surg_5y else None,
-                    weight="critical" if _wt == "critical" else "high"))
+                    weight="critical" if _wt == "critical" else "high",
+                    rule_id="R-Q5-CRITICAL-5Y", evidence={"code": _dc, "matched_prefix": "HEALTH_Q5_CODES"}))
 
     # ── AI 전달용 raw_text 구축 ───────────────────────────────────
     raw_text_lines = []
