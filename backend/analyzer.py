@@ -15,6 +15,7 @@ from google.genai import types
 # 상수
 # ==========================================
 surg_keywords = ["수술","절제","시술","천자","주입","절개","적출","봉합","결찰","종양","폴립","결절","치환","이식","절단","재건","거상","관혈","제거","소작","배농","레이저","냉동"]
+surg_negative_keywords = ["상담","검사","판독","초음파","촬영","조직검사","생검","X-RAY","X-ray","MRI","CT","단순처치","소독","드레싱","교육","관찰","진찰","재진","문진","평가","측정"]
 test_keywords = ["검사","초음파","내시경","촬영","MRI","CT","조직","생검","판독","X-RAY","X-ray","엑스레이"]
 nhis_surg_keywords = ["매복","발치","치핵","치루","충수","탈장","담석","담낭","제왕절개","루봉합","루절제","치아이식"]
 
@@ -92,13 +93,53 @@ def row_is_junk(row) -> bool:
 @functools.lru_cache(maxsize=512)
 def detect_file_type(headers):
     h_joined = " ".join(str(h) for h in headers)
-    if any(k in h_joined for k in ["상병명", "상병코드", "진단코드", "내원일수"]):
+    h_norm = h_joined.replace(" ", "").replace("\n", "")
+
+    # 1차: 키워드 사전 (동의어/띄어쓰기/줄바꿈 변형 포함)
+    basic_kws = ["상병명", "상병코드", "진단코드", "내원일수", "진료개시일", "입내원구분",
+                 "요양일수", "진료시작일", "주상병", "부상병", "상병기호"]
+    detail_kws = ["진료내역", "행위명", "처치", "수술", "행위명칭", "진료내역구분",
+                  "급여비총액", "비급여", "행위코드", "수가코드"]
+    pharma_kws = ["약품명", "투약일수", "조제", "처방조제", "약품코드", "1회투약량",
+                  "총투여일수", "약국", "처방일", "조제일자"]
+
+    if any(k in h_joined or k in h_norm for k in basic_kws):
         return "basic"
-    if any(k in h_joined for k in ["진료내역", "행위명", "처치", "수술"]):
+    if any(k in h_joined or k in h_norm for k in detail_kws):
         return "detail"
-    if any(k in h_joined for k in ["약품명", "투약일수", "조제"]):
+    if any(k in h_joined or k in h_norm for k in pharma_kws):
         return "pharma"
+
+    # 2차: 행 데이터 패턴 기반 추론 (컬럼 수, 날짜/코드 패턴)
+    n_cols = len(headers)
+    has_date_col = any(re.search(r"일$|날짜|일자|개시", str(h)) for h in headers)
+    has_code_like = any(re.search(r"코드|기호|분류", str(h)) for h in headers)
+    has_drug_like = any(re.search(r"약|처방|조제|투약", str(h)) for h in headers)
+    has_act_like = any(re.search(r"행위|내역|명칭|처치|급여", str(h)) for h in headers)
+
+    if has_drug_like:
+        return "pharma"
+    if has_act_like and n_cols >= 5:
+        return "detail"
+    if has_date_col and has_code_like:
+        return "basic"
+
     return "unknown"
+
+
+def _is_surgery_match(text: str) -> bool:
+    """수술 키워드 매칭 — positive + negative 동시 적용"""
+    if not text:
+        return False
+    has_positive = any(kw in text for kw in surg_keywords)
+    if not has_positive:
+        return False
+    has_negative = any(kw in text for kw in surg_negative_keywords)
+    if has_negative:
+        # negative가 있어도 강력한 수술 키워드면 통과
+        strong_surg = ["수술", "절제", "절개", "적출", "봉합", "이식", "절단", "재건", "치환", "관혈", "배농"]
+        return any(kw in text for kw in strong_surg)
+    return True
 
 
 def parse_nhis_text(text, fname):
@@ -366,6 +407,10 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
     df = pd.DataFrame(all_records)
     disease_stats = defaultdict(new_disease)
 
+    # ── 날짜 파싱 실패 추적 ──────────────────────────────────────
+    date_parse_fail_count = 0
+    date_parse_fail_samples = []
+
     # ── disease_stats 구축 ────────────────────────────────────────
     for _, row in df.iterrows():
         if row_is_junk(row):
@@ -380,11 +425,23 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
         m_days_raw = get_val(row, ["투약일수", "요양일수"])
         m_days = int(re.findall(r"\d+", m_days_raw)[0]) if re.findall(r"\d+", m_days_raw) else 0
 
-        group_key = code_str if code_str else name_str[:15]
+        if code_str:
+            group_key = code_str
+        else:
+            # 코드 없는 경우: 이름 정규화 + 병원 + 월 조합으로 충돌 방지
+            name_norm = re.sub(r"[\s\d\.\-]", "", name_str)[:12]
+            month_bucket = parse_date(date_str)[:7] if parse_date(date_str) else ""
+            hosp_short = hospital[:6] if hospital else ""
+            group_key = f"{name_norm}|{hosp_short}|{month_bucket}" if name_norm else ""
         if not group_key:
             continue
 
         clean_date = parse_date(date_str)
+        if date_str and not clean_date:
+            date_parse_fail_count += 1
+            if len(date_parse_fail_samples) < 5:
+                date_parse_fail_samples.append(date_str[:30])
+
         s = disease_stats[group_key]
 
         if code_str and not s["diag_code"]:
@@ -407,9 +464,8 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             elif ftype == "detail":
                 act_name = get_val(row, ["행위명칭", "행위명", "진료내역", "처치"])
                 surg_target = act_name if act_name else name_str
-                for kw in surg_keywords:
-                    if kw in surg_target:
-                        s["surgeries"].add(surg_target); s["surgery_dates"].add(clean_date); break
+                if _is_surgery_match(surg_target):
+                    s["surgeries"].add(surg_target); s["surgery_dates"].add(clean_date)
                 for kw in test_keywords:
                     if kw in surg_target:
                         s["tests_found"].add(surg_target); break
@@ -430,20 +486,17 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
                     s["has_pharma"] = True
                 else:
                     s["visit_dates"].add(clean_date)
-                for kw in surg_keywords + nhis_surg_keywords:
-                    if kw in name_str:
-                        s["surgeries"].add(name_str)
-                        if clean_date: s["surgery_dates"].add(clean_date)
-                        break
+                # nhis는 강한 수술 키워드 사용 (nhis_surg_keywords는 의료수가 코드 기반이라 오탐 낮음)
+                if _is_surgery_match(name_str) or any(kw in name_str for kw in nhis_surg_keywords):
+                    s["surgeries"].add(name_str)
+                    if clean_date: s["surgery_dates"].add(clean_date)
                 for kw in test_keywords:
                     if kw in name_str: s["tests_found"].add(name_str); break
 
             if ftype in ("basic", "unknown"):
-                for kw in surg_keywords:
-                    if kw in name_str:
-                        s["surgeries"].add(name_str)
-                        if clean_date: s["surgery_dates"].add(clean_date)
-                        break
+                if _is_surgery_match(name_str):
+                    s["surgeries"].add(name_str)
+                    if clean_date: s["surgery_dates"].add(clean_date)
                 for kw in test_keywords:
                     if kw in name_str: s["tests_found"].add(name_str); break
 
@@ -454,6 +507,14 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             s["hospitals"].add(hospital)
         if name_str and not s["name"]:
             s["name"] = name_str
+
+    # ── 날짜 파싱 실패 경고 ─────────────────────────────────────
+    if date_parse_fail_count > 0:
+        sample_text = ", ".join(date_parse_fail_samples[:3])
+        parse_errors.append(
+            f"⚠️ 날짜 인식 실패 {date_parse_fail_count}건 (예: {sample_text}) — "
+            f"해당 레코드의 기간 판정이 누락될 수 있습니다."
+        )
 
     # ── 코드 기반 결정론적 알릴의무 ──────────────────────────────
     _d3m_dt  = today - timedelta(days=90)
