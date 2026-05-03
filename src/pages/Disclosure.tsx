@@ -135,7 +135,11 @@ export default function Disclosure() {
     if (birthdate) form.append("birthdate_pw", birthdate);
 
     try {
-      const res = await fetch(`${API_BASE}/api/analyze`, { method: "POST", body: form });
+      const res = await fetch(`${API_BASE}/api/analyze`, {
+        method: "POST",
+        body: form,
+        signal: AbortSignal.timeout(120_000),
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.detail || `서버 오류 (${res.status})`);
