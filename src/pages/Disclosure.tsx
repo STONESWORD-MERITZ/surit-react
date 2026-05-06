@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -95,6 +95,11 @@ export default function Disclosure() {
   const [copied, setCopied] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // 페이지 로드 시 백엔드 wake-up (cold start 대비)
+  useEffect(() => {
+    fetch(`${API_BASE}/api/health`).catch(() => {});
+  }, []);
+
   const analyze = async () => {
     const files = fileRef.current?.files;
     if (!files?.length) {
@@ -115,7 +120,7 @@ export default function Disclosure() {
       const res = await fetch(`${API_BASE}/api/analyze`, {
         method: "POST",
         body: form,
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(180_000),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -200,15 +205,15 @@ export default function Disclosure() {
         </div>
 
         {/* 업로드 */}
-        <div className="mt-5 bg-gray-50 rounded-xl p-5 text-center">
+        <div className="mt-5 bg-indigo-50 border-2 border-dashed border-indigo-200 rounded-2xl p-6 text-center hover:border-indigo-400 hover:bg-indigo-100/50 transition-all duration-200">
           <input
             ref={fileRef}
             type="file"
             accept=".pdf"
             multiple
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-5 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-[#4F46E5] file:text-white hover:file:bg-[#4338CA] cursor-pointer"
+            className="block w-full text-sm text-gray-600 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-[#4F46E5] file:text-white file:shadow-md hover:file:bg-[#4338CA] hover:file:shadow-lg hover:file:scale-105 file:transition-all file:duration-200 cursor-pointer"
           />
-          <p className="text-xs text-gray-300 mt-2">
+          <p className="text-xs text-gray-500 mt-3">
             건강e음 기본진료·세부진료·처방조제 PDF (1개 이상)
           </p>
         </div>
@@ -288,8 +293,8 @@ export default function Disclosure() {
           {/* 고지 항목 - 접기/펼치기 */}
           {Object.entries(result.summary_reports)
             .sort(([a], [b]) => {
-              const numA = parseInt(a.match(/\d+/)?.[0] ?? "999", 10);
-              const numB = parseInt(b.match(/\d+/)?.[0] ?? "999", 10);
+              const numA = parseInt(a.match(/(\d+)번질문/)?.[1] ?? a.match(/\d+/)?.[0] ?? "999", 10);
+              const numB = parseInt(b.match(/(\d+)번질문/)?.[1] ?? b.match(/\d+/)?.[0] ?? "999", 10);
               return numA - numB;
             })
             .map(([qTitle, items]) => {
