@@ -50,8 +50,10 @@ def normalize_code(raw: str) -> str:
         return ""
     # 점/하이픈/공백 제거 (O33.9 → O339)
     code = code.replace(".", "").replace("-", "").replace(" ", "")
-    # 첫 글자 A/B = 양방/한의학 구분자 → 항상 제거
-    if len(code) >= 2 and code[0] in ("A", "B"):
+    # 첫 글자 A/B + 두번째도 영문 = 양방/한의학 구분자 → 첫 글자만 제거
+    # (예: AK635→K635, BM179→M179, AE1150→E1150)
+    # 단, B20(에이즈), A09(감염) 등 실제 코드는 유지
+    if len(code) >= 3 and code[0] in ("A", "B") and code[1].isalpha():
         code = code[1:]
     # 이제 코드는 [영문대분류][숫자...] 형태여야 함 (예: O339, I639, E115)
     # 대분류 알파벳 뒤 선행 0 제거 (O0339 → O339)
