@@ -11,7 +11,12 @@ app = FastAPI(title="SURIT React Backend", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://surit-react.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:5174",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -66,7 +71,11 @@ def _build_kakao_message(product_type_kr: str, today, summary_reports: dict) -> 
         msg += "고지 대상 없음\n"
         return msg
 
-    for q_title in sorted(summary_reports.keys()):
+    def _q_sort_key(title):
+        m = re.search(r'\d+', title)
+        return int(m.group()) if m else 999
+
+    for q_title in sorted(summary_reports.keys(), key=_q_sort_key):
         clean_title = re.sub(r"^\[.*?\]\s*", "", q_title)
         msg += f"> {clean_title}\n"
         items_q = summary_reports[q_title]
@@ -92,8 +101,13 @@ def _build_kakao_message(product_type_kr: str, today, summary_reports: dict) -> 
 
 
 def _serialize_reports(summary_reports: dict) -> dict:
+    def _q_sort_key(title):
+        m = re.search(r'\d+', title)
+        return int(m.group()) if m else 999
+
     out = {}
-    for q_title, items in summary_reports.items():
+    for q_title in sorted(summary_reports.keys(), key=_q_sort_key):
+        items = summary_reports[q_title]
         out[q_title] = [
             {
                 **item,
