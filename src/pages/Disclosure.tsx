@@ -93,6 +93,7 @@ export default function Disclosure() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [kakaoOpen, setKakaoOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 페이지 로드 시 백엔드 wake-up (cold start 대비)
@@ -238,11 +239,24 @@ export default function Disclosure() {
       {/* 결과 */}
       {result && (
         <div>
-          {/* 카카오톡 복사 (설계매니저 전송용) */}
+          {/* 카카오톡 복사 (설계매니저 전송용) — 접기/펼치기 */}
           {result.kakao_message && (
             <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] mb-6 overflow-hidden">
               <div className="px-5 py-4 flex items-center justify-between">
-                <span className="text-sm font-bold text-gray-800">카카오톡 전송용 메시지</span>
+                <button
+                  onClick={() => setKakaoOpen(!kakaoOpen)}
+                  className="flex items-center gap-2 text-left"
+                >
+                  <svg
+                    className={`w-4 h-4 text-gray-400 transition-transform ${kakaoOpen ? "rotate-180" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                  <span className="text-sm font-bold text-gray-800">카카오톡 전송용 메시지</span>
+                </button>
                 <button
                   onClick={handleCopy}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-sm transition-colors"
@@ -257,9 +271,11 @@ export default function Disclosure() {
                   {copied ? "복사 완료!" : "복사하기"}
                 </button>
               </div>
-              <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed bg-gray-50 px-5 py-4 mx-0">
-                {result.kakao_message}
-              </pre>
+              {kakaoOpen && (
+                <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed bg-gray-50 px-5 py-4 mx-0">
+                  {result.kakao_message}
+                </pre>
+              )}
             </div>
           )}
 
