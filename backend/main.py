@@ -173,16 +173,24 @@ async def analyze(
 
     ai_res = result["ai_result"]
 
+    meritz = result.get("meritz_easy", {})
+
     return {
         "flagged_count":   len(flagged_codes),
         "total_q_count":   len(summary_reports),
         "total_visit_sum": sum(item["visit"] for items in summary_reports.values() for item in items),
         "total_med_sum":   sum(item["med_days"] for items in summary_reports.values() for item in items),
         "summary_reports": _serialize_reports(summary_reports),
-        "kakao_message":   _build_kakao_message(product_type_kr, today, summary_reports),
+        "kakao_message":   _build_kakao_message(product_type_kr, today, summary_reports)
+                           + ("\n" + meritz["detail_message"] if meritz.get("detail_message") else ""),
         "parse_errors":    result["parse_errors"],
         "warnings":        result["retry_warnings"],
         "verdict":         ai_res.get("health_verdict") or ai_res.get("simple_verdict", ""),
         "verdict_reason":  ai_res.get("health_reason") or ai_res.get("simple_reason", ""),
         "recommend":       ai_res.get("recommend", ""),
+        "meritz_easy_eligible":          meritz.get("meritz_easy_eligible", False),
+        "meritz_easy_exception_count":   meritz.get("exception_diseases_count", 0),
+        "meritz_easy_recommended_year":  meritz.get("recommended_disclosure_year"),
+        "meritz_easy_details":           meritz.get("exception_diseases", []) + meritz.get("rejected_diseases", []),
+        "meritz_easy_message":           meritz.get("detail_message", ""),
     }

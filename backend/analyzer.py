@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from google import genai
 from google.genai import types
+from meritz_easy_rules import evaluate_meritz_easy
 
 # ==========================================
 # 키워드 로딩 (keywords.json 외부화)
@@ -1589,6 +1590,9 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 6대 중증�
             "weight":          m["weight"],
         })
 
+    # ── 메리츠화재 간편보험 예외질환 평가 ──────────────────────────
+    meritz_easy_result = evaluate_meritz_easy(disease_stats, today)
+
     return {
         "ai_result":               ai_result,
         "summary_reports":         {k: list(v) for k, v in summary_reports.items()},
@@ -1598,4 +1602,5 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 6대 중증�
         "analysis_today":          today,
         "parse_errors":            parse_errors,
         "retry_warnings":          retry_warnings,
+        "meritz_easy":             meritz_easy_result,
     }
