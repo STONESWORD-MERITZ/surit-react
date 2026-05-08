@@ -44,8 +44,13 @@ def get_val(row, possible_keys):
     return ""
 
 
-def normalize_code(raw: str) -> str:
-    code = raw.upper().strip()
+def normalize_code(raw: str | None) -> str:
+    if raw is None:
+        return ""
+    code = str(raw).strip()
+    if not code:
+        return ""
+    code = code.upper()
     if not code or code == "$":
         return ""
     # 점/하이픈/공백 제거 (O33.9 → O339)
@@ -334,7 +339,12 @@ def new_disease():
 
 
 def _code_in(code, prefixes):
-    c = code.upper().strip()
+    if code is None:
+        return False
+    c = str(code).strip()
+    if not c:
+        return False
+    c = c.upper()
     return any(c.startswith(p) for p in prefixes)
 
 
@@ -359,7 +369,12 @@ def _max_presc(med_dict, since_dt):
 
 def is_simple_q3_allowed(code: str) -> bool:
     """간편심사 Q3 허용 코드인지 확인"""
-    code = code.upper().strip()
+    if code is None:
+        return False
+    code = str(code).strip()
+    if not code:
+        return False
+    code = code.upper()
     for prefix in SIMPLE_Q3_ALLOWED_PREFIXES:
         if code.startswith(prefix):
             return True
