@@ -521,7 +521,7 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
         in_out   = get_val(row, ["입내원구분", "입원외래구분", "입원", "외래", "구분"])
         hospital = get_val(row, ["병·의원", "기관명", "요양기관명"])
         date_str = get_val(row, ["진료개시일", "진료시작일", "진료일", "조제일자", "처방일"])
-        m_days_raw = get_val(row, ["투약일수", "요양일수"])
+        m_days_raw = get_val(row, ["내원일수", "투약일수", "요양일수"])
         m_days = int(re.findall(r"\d+", m_days_raw)[0]) if re.findall(r"\d+", m_days_raw) else 0
         cost_raw = get_val(row, ["총진료비", "진료비", "총 진료비", "본인부담총액", "급여비용총액"])
         cost_val = _to_int_cost(cost_raw)
@@ -859,7 +859,7 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
         name_str = get_val(row, ["상병명", "약품명", "진료내역", "행위명"])
         hospital = get_val(row, ["병·의원", "기관명", "요양기관명"])
         in_out   = get_val(row, ["입내원구분", "입원외래구분", "입원", "외래", "구분"])
-        m_days   = get_val(row, ["투약일수", "요양일수"])
+        m_days   = get_val(row, ["내원일수", "투약일수", "요양일수"])
         cost_raw = get_val(row, ["총진료비", "진료비", "총 진료비"])
 
         if not date_str and not name_str: continue
