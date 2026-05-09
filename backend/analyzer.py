@@ -722,6 +722,7 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
 
     # ── 코드 기반 결정론적 알릴의무 ──────────────────────────────
     _d3m_dt  = today - timedelta(days=90)
+    _d1y_dt  = today - timedelta(days=365)
     _d5y_dt  = today - timedelta(days=1825)
     _d10y_dt = today - timedelta(days=3650)
 
