@@ -240,12 +240,9 @@ def evaluate_disease(
             dates_in_10y.append(d)
 
     total_hosp_count = len(dates_in_10y)
-    # 입원일수: _inpatient_actual_days가 있으면 사용, 없으면 날짜 수
-    actual_days = disease_stat.get("_inpatient_actual_days", 0)
-    if actual_days > 0 and dates_in_10y:
-        total_hosp_days = actual_days
-    else:
-        total_hosp_days = len(dates_in_10y)
+    # 입원일수: _inpatient_days_map에서 날짜별 내원일수 합산
+    inp_days_map = disease_stat.get("_inpatient_days_map", {})
+    total_hosp_days = sum(inp_days_map.get(d, 1) for d in dates_in_10y) if dates_in_10y else 0
 
     if hosp_days_limit != -1 and total_hosp_days > hosp_days_limit:
         hosp_ok = False

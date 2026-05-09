@@ -15,15 +15,16 @@ function connectionErrorMessage(apiBase: string): string {
 type SummaryItem = {
   first_date: string;
   latest_date: string;
+  first_diagnosis_date: string;
   code: string;
   name: string;
   visit: number;
   med_days: number;
   inpatient: number;
+  inpatient_count: number;
   surgeries: string[];
   hospitals: string[];
   detail: string;
-  weight: string;
 };
 
 type AnalyzeResult = {
@@ -81,19 +82,6 @@ function CollapsibleSection({
   );
 }
 
-const weightLabel: Record<string, string> = {
-  critical: "위험",
-  high: "높음",
-  mid: "보통",
-  low: "낮음",
-};
-
-const weightStyle: Record<string, string> = {
-  critical: "bg-red-50 text-red-600",
-  high: "bg-amber-50 text-amber-600",
-  mid: "bg-gray-100 text-gray-500",
-  low: "bg-gray-50 text-gray-400",
-};
 
 export default function Disclosure() {
   const [productType, setProductType] = useState("standard");
@@ -351,11 +339,17 @@ export default function Disclosure() {
                       )}
                     </div>
 
-                    {/* 날짜 / 병원 */}
+                    {/* 최초진단일 / 날짜 / 병원 */}
                     <div className="text-xs text-gray-400 mb-2">
+                      {item.first_diagnosis_date && (
+                        <span className="text-gray-500 font-semibold">최초 {item.first_diagnosis_date}</span>
+                      )}
+                      {item.first_diagnosis_date && (item.first_date || item.latest_date) && " · "}
                       {item.first_date && item.latest_date && item.first_date !== item.latest_date
                         ? `${item.first_date} ~ ${item.latest_date}`
-                        : item.first_date || item.latest_date}
+                        : (!item.first_diagnosis_date || item.first_date !== item.first_diagnosis_date)
+                          ? (item.first_date || item.latest_date)
+                          : ""}
                       {item.hospitals?.length > 0 && ` · ${item.hospitals.join(", ")}`}
                     </div>
 
@@ -370,17 +364,22 @@ export default function Disclosure() {
                     <div className="flex flex-wrap gap-1.5">
                       {item.inpatient > 0 && (
                         <span className="text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold bg-red-50 text-red-500">
-                          🏥 입원 {item.inpatient}일
+                          입원 {item.inpatient}일
+                        </span>
+                      )}
+                      {item.inpatient_count > 1 && (
+                        <span className="text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold bg-red-50 text-red-400">
+                          입원 {item.inpatient_count}회
                         </span>
                       )}
                       {item.surgeries?.length > 0 && (
                         <span className="text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold bg-orange-50 text-orange-500">
-                          🔪 수술: {item.surgeries.join(", ")}
+                          수술: {item.surgeries.join(", ")}
                         </span>
                       )}
                       {item.med_days > 0 && (
                         <span className="text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold bg-emerald-50 text-emerald-600">
-                          💊 투약 {item.med_days}일
+                          투약 {item.med_days}일
                         </span>
                       )}
                       {item.visit > 0 && (
@@ -388,9 +387,6 @@ export default function Disclosure() {
                           통원 {item.visit}회
                         </span>
                       )}
-                      <span className={`text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold ${weightStyle[item.weight] || weightStyle.mid}`}>
-                        {weightLabel[item.weight] || item.weight}
-                      </span>
                     </div>
                   </div>
                 ))}
