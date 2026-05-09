@@ -1,6 +1,16 @@
 import { useState, useRef, useEffect } from "react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+
+function connectionErrorMessage(apiBase: string): string {
+  return (
+    "서버에 연결할 수 없습니다(Failed to fetch). " +
+    (typeof window !== "undefined" && window.location.hostname !== "localhost"
+      ? `프론트 배포 환경에서는 Vercel(또는 호스팅)에 백엔드 주소를 VITE_API_URL로 설정해야 합니다. (현재 요청: ${apiBase}) `
+      : "") +
+    "백엔드가 실행 중인지, 주소·HTTPS 여부·Railway 백엔드 CORS 설정을 확인해 주세요."
+  );
+}
 
 type SummaryItem = {
   first_date: string;
@@ -129,7 +139,14 @@ export default function Disclosure() {
       }
       setResult(await res.json());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "알 수 없는 오류");
+      if (
+        e instanceof TypeError &&
+        (e.message === "Failed to fetch" || e.message.includes("fetch"))
+      ) {
+        setError(connectionErrorMessage(API_BASE));
+      } else {
+        setError(e instanceof Error ? e.message : "알 수 없는 오류");
+      }
     } finally {
       setLoading(false);
     }

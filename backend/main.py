@@ -9,14 +9,42 @@ from analyzer import run_analysis, AnalysisError
 
 app = FastAPI(title="SURIT React Backend", version="1.0.0")
 
+_DEFAULT_CORS_ORIGINS = [
+    "https://surit-react.vercel.app",
+    "https://surit-react-production.up.railway.app",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+]
+
+
+def _merge_cors_origins() -> list[str]:
+    extra = os.environ.get("CORS_ORIGINS", "")
+    merged = list(_DEFAULT_CORS_ORIGINS)
+    for part in extra.split(","):
+        o = part.strip()
+        if o and o not in merged:
+            merged.append(o)
+    return merged
+
+
+def _cors_origin_regex() -> str | None:
+    """Vercel 미리보기·Railway 등 가변 호스트 허용. CORS_ORIGIN_REGEX로 재정의 또는 빈 문자열로 비활성화."""
+    raw = os.environ.get("CORS_ORIGIN_REGEX")
+    if raw is not None:
+        s = raw.strip()
+        return s or None
+    return (
+        r"https://([a-zA-Z0-9\-]+\.)*vercel\.app$"
+        r"|https://[a-zA-Z0-9\-]+\.up\.railway\.app$"
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://surit-react.vercel.app",
-        "https://surit-react-production.up.railway.app",
-        "http://localhost:5173",
-        "http://localhost:5174",
-    ],
+    allow_origins=_merge_cors_origins(),
+    allow_origin_regex=_cors_origin_regex(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

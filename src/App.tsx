@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -7,7 +8,18 @@ import BeforeAfter from "./pages/BeforeAfter";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 export default function App() {
+  useEffect(() => {
+    void fetch(`${API_BASE}/api/health`, {
+      method: "GET",
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => {
+      // Warm-up call should never block initial render.
+    });
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>
