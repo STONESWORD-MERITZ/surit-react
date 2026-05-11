@@ -1,5 +1,7 @@
+import asyncio
 import os
 import re
+import time
 from datetime import date
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
@@ -177,13 +179,17 @@ async def analyze(
     if not api_key:
         raise HTTPException(status_code=500, detail="서버에 GOOGLE_API_KEY가 설정되지 않았습니다.")
 
-    active_files = []
-    for f in files:
+    t_start = time.time()
+    print(f"[analyze] 시작 — files={len(files)}, product={product_type}, ref={reference_date}")
+
+    async def _read(f):
         data = await f.read()
-        active_files.append(_PDFFile(name=f.filename or "unknown.pdf", data=data))
+        return _PDFFile(name=f.filename or "unknown.pdf", data=data)
+
+    active_files = await asyncio.gather(*[_read(f) for f in files])
 
     try:
-        result = run_analysis(
+        result = await run_analysis(
             active_files=active_files,
             product_type=product_type_kr,
             reference_date=ref_date,
@@ -194,6 +200,9 @@ async def analyze(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"분석 중 오류: {e}")
+
+    elapsed = time.time() - t_start
+    print(f"[analyze] 완료 — {elapsed:.1f}초 소요")
 
     summary_reports = result["summary_reports"]
     flagged_codes = result["flagged_codes"]
