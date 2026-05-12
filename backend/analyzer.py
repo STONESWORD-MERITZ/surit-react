@@ -204,6 +204,27 @@ def _is_procedure_kw(text: str) -> bool:
     return any(kw in text for kw in PROCEDURE_KEYWORDS)
 
 
+# 질병명이 아닌 의료수가 청구 항목 키워드 (group_key 생성 필터용)
+_BILLING_CODE_KW = (
+    "진찰료", "관리료", "기본료", "지도료",
+    "처방조제", "약국관리", "의약품관리", "약품관리",
+    "방문당", "1일분", "1회당", "회당", "회분",
+    "조제기본", "복약지도", "입원료", "처방료",
+    "피하또는", "근육내주사", "정맥내주사",
+    "악당", "치석제거", "치근활택",
+)
+
+
+def _is_billing_code(name: str) -> bool:
+    """의료수가 청구 코드(행위/비용 항목) 여부 판별 — 질병명이면 False."""
+    if not name:
+        return False
+    # [1/3악당] 등 치과 청구 단위 표기
+    if "[" in name and ("/" in name or "악당" in name):
+        return True
+    return any(kw in name for kw in _BILLING_CODE_KW)
+
+
 def _to_int_cost(raw: str) -> int:
     """진료비 문자열에서 정수 비용 추출 (예: '1,234,500원' -> 1234500)."""
     if not raw:
@@ -877,7 +898,21 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         # 처방조제(pharma)의 코드는 약품/분류코드일 수 있어 질병코드 판정에서 제외
         raw_code = "" if ftype == "pharma" else get_val(row, ["코드", "상병코드", "진단코드"])
         code_str = normalize_code(raw_code)
-        name_str = get_val(row, ["상병명", "약품명", "진료내역", "행위명", "처치및수술", "처치및수 술"])
+
+        # ftype별 이름 조회 분리:
+        # - basic/unknown: 상병명(질병명) 우선 → 행위명으로 오인 방지
+        # - detail: 행위명칭(처치행위명) 사용
+        # - pharma: 약품명 사용
+        if ftype == "detail":
+            name_str = get_val(row, ["행위명칭", "행위명", "진료내역", "처치및수술", "처치및수 술"])
+        elif ftype == "pharma":
+            name_str = get_val(row, ["약품명", "의약품명"])
+        else:  # basic, unknown, nhis
+            name_str = (
+                get_val(row, ["상병명", "주상병명", "상병기호"])
+                or get_val(row, ["진료내역", "행위명", "처치및수술"])
+            )
+
         in_out   = get_val(row, ["입내원구분", "입원외래구분", "입원", "외래", "구분"])
         hospital = get_val(row, ["병·의원", "기관명", "요양기관명"])
         date_str = get_val(row, ["진료개시일", "진료시작일", "진료일", "조제일자", "처방일"])
@@ -889,11 +924,20 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         if code_str:
             group_key = code_str
         else:
-            # 코드 없는 경우: 이름 정규화 + 병원 + 월 조합으로 충돌 방지
-            name_norm = re.sub(r"[\s\d\.\-]", "", name_str)[:12]
+            # ★ 세부진료(detail) 레코드는 disease code 없으면 독립 disease entry 생성 금지
+            #   (세부진료 행위명은 질병명이 아닌 청구 행위)
+            if ftype == "detail":
+                continue
+            name_norm    = re.sub(r"[\s\d\.\-\[\]]", "", name_str)[:12]
             month_bucket = parse_date(date_str)[:7] if parse_date(date_str) else ""
-            hosp_short = hospital[:6] if hospital else ""
-            group_key = f"{name_norm}|{hosp_short}|{month_bucket}" if name_norm else ""
+            hosp_short   = hospital[:6] if hospital else ""
+            # 날짜 없음 → 같은 버킷에 수년치 날짜 몰림 방지; 이름 없음 → 의미없는 entry
+            if not month_bucket or not name_norm:
+                continue
+            # 의료수가 청구 코드(진찰료/관리료/조제기본료 등)는 질병명 아님 → 스킵
+            if _is_billing_code(name_str):
+                continue
+            group_key = f"{name_norm}|{hosp_short}|{month_bucket}"
         if not group_key:
             continue
 
@@ -1138,7 +1182,11 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         _dc  = (_s.get("diag_code") or _ck).strip()
         if not _dc or _dc in ("$", "해당없음"):
             continue
-        _nm  = _s.get("name") or _ck
+        # 의료수가 청구 항목이 group_key로 남아있으면 스킵 (최후 방어선)
+        _nm_raw = _s.get("name") or ""
+        if not _s.get("diag_code") and ("|" in _ck or _is_billing_code(_nm_raw)):
+            continue
+        _nm  = _nm_raw or _ck
         _hp  = " / ".join(list(_s["hospitals"])[:2]) or "정보 없음"
         # 투약일수: 처방조제(pharma)에서만 확인
         _med_pharma = _s["med_dates_pharma"]
@@ -1266,7 +1314,15 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         # AI raw_text에도 약국 코드는 질병코드로 전달하지 않음
         code_raw = "" if ftype == "pharma" else get_val(row, ["코드", "상병코드", "진단코드"])
         code_str = normalize_code(code_raw)
-        name_str = get_val(row, ["상병명", "약품명", "진료내역", "행위명"])
+        if ftype == "detail":
+            name_str = get_val(row, ["행위명칭", "행위명", "진료내역", "처치및수술"])
+        elif ftype == "pharma":
+            name_str = get_val(row, ["약품명", "의약품명"])
+        else:
+            name_str = (
+                get_val(row, ["상병명", "주상병명", "상병기호"])
+                or get_val(row, ["진료내역", "행위명"])
+            )
         hospital = get_val(row, ["병·의원", "기관명", "요양기관명"])
         in_out   = get_val(row, ["입내원구분", "입원외래구분", "입원", "외래", "구분"])
         m_days   = get_val(row, ["내원일수", "투약일수", "요양일수"])
