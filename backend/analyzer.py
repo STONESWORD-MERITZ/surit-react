@@ -1038,6 +1038,35 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                 _gubun = get_val(row, ["구분", "처방조제구분", "처방구분", "분류"])
                 if _gubun and "조제" in _gubun and "처방" not in _gubun:
                     continue
+
+                # ★ 같은 날짜의 기본진료 disease entry에 투약일수/약품명 부착
+                # 처방조제는 KCD 코드가 없으므로, 동일 날짜 visit/inpatient 가진 disease 탐색
+                _target_groups = []
+                for _ck, _cs in disease_stats.items():
+                    if not _cs.get("diag_code") or _ck.startswith("PHARMA|"):
+                        continue
+                    if clean_date in _cs.get("visit_dates", set()) or \
+                       clean_date in _cs.get("inpatient_dates", set()):
+                        _target_groups.append(_ck)
+
+                if _target_groups:
+                    # 매칭된 disease 모두에 투약 정보 부착
+                    for _tg in _target_groups:
+                        _ts = disease_stats[_tg]
+                        _ts["has_pharma"] = True
+                        if m_days > 0:
+                            _prev = _ts["med_dates_pharma"].get(clean_date, 0)
+                            if m_days > _prev:
+                                _ts["med_dates_pharma"][clean_date] = m_days
+                        _drug = name_str.strip()
+                        if _drug:
+                            if days_ago <= 90:
+                                _ts["drug_names_in_90"].add(_drug)
+                            else:
+                                _ts["drug_names_before_90"].add(_drug)
+                    continue  # 매칭 완료 — PHARMA 임시 entry는 건너뜀
+
+                # 매칭 없음 → PHARMA 임시 그룹에 부착 (filters에서 KCD 미보유로 자동 스킵됨)
                 s["has_pharma"] = True
                 if m_days > 0:
                     prev = s["med_dates_pharma"].get(clean_date, 0)

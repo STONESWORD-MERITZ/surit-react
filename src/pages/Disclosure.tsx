@@ -20,6 +20,7 @@ type SummaryItem = {
   name: string;
   visit: number;
   med_days: number;
+  med_days_30plus?: boolean;
   inpatient: number;
   inpatient_count: number;
   surgery_count?: number;
@@ -66,13 +67,30 @@ function riskOf(item: SummaryItem): Risk {
   return "green";
 }
 
-const RISK: Record<Risk, { border: string; label: string; pill: string }> = {
-  red:    { border: "border-red-400",     label: "text-red-600",     pill: "bg-red-100 text-red-600" },
-  orange: { border: "border-orange-400",  label: "text-orange-600",  pill: "bg-orange-100 text-orange-600" },
-  gray:   { border: "border-gray-400",    label: "text-gray-500",    pill: "bg-gray-100 text-gray-600" },
-  yellow: { border: "border-amber-400",   label: "text-amber-600",   pill: "bg-amber-100 text-amber-700" },
-  green:  { border: "border-emerald-400", label: "text-emerald-600", pill: "bg-emerald-100 text-emerald-700" },
+const RISK: Record<Risk, { border: string; label: string; pill: string; bg: string; text: string }> = {
+  red:    { border: "border-red-400",     label: "text-red-600",     pill: "bg-red-100 text-red-600",        bg: "bg-red-50",     text: "text-red-700" },
+  orange: { border: "border-orange-400",  label: "text-orange-600",  pill: "bg-orange-100 text-orange-600",  bg: "bg-orange-50",  text: "text-orange-700" },
+  gray:   { border: "border-gray-400",    label: "text-gray-500",    pill: "bg-gray-100 text-gray-600",      bg: "bg-gray-50",    text: "text-gray-600" },
+  yellow: { border: "border-amber-400",   label: "text-amber-600",   pill: "bg-amber-100 text-amber-700",    bg: "bg-amber-50",   text: "text-amber-700" },
+  green:  { border: "border-emerald-400", label: "text-emerald-600", pill: "bg-emerald-100 text-emerald-700",bg: "bg-emerald-50", text: "text-emerald-700" },
 };
+
+function Chip({ children, color = "gray" }: { children: React.ReactNode; color?: string }) {
+  const cls: Record<string, string> = {
+    gray:    "bg-gray-100 text-gray-600",
+    red:     "bg-red-100 text-red-600",
+    amber:   "bg-amber-100 text-amber-700",
+    emerald: "bg-emerald-100 text-emerald-700",
+    orange:  "bg-orange-100 text-orange-600",
+    indigo:  "bg-indigo-100 text-indigo-600",
+    rose:    "bg-rose-100 text-rose-600",
+  };
+  return (
+    <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold ${cls[color] ?? cls.gray}`}>
+      {children}
+    </span>
+  );
+}
 
 
 // ── 결과 뷰 ─────────────────────────────────────────────────
@@ -206,7 +224,10 @@ function ResultView({
                     const surgN = item.surgery_count ?? item.surgeries?.length ?? 0;
                     const procN = item.procedures?.length ?? 0;
                     const suspN = item.surgery_suspected?.length ?? 0;
-                    const hosp  = (item.hospitals as string[])?.[0] ?? "";
+                    const hosps = (item.hospitals as string[]) ?? [];
+                    const period = item.first_date && item.latest_date && item.first_date !== item.latest_date
+                      ? `${item.first_date} ~ ${item.latest_date}`
+                      : (item.first_date || "");
 
                     return (
                       <div key={idx} className={`px-5 py-4 border-l-4 ${sc.border}`}>
@@ -222,74 +243,40 @@ function ResultView({
                           )}
                         </div>
 
-                        {/* 날짜 · 병원 */}
-                        <div className="text-xs text-gray-400 mb-2.5">
-                          {item.first_date}{hosp ? ` · ${hosp}` : ""}
-                        </div>
+                        {/* 진료 기간 */}
+                        {period && (
+                          <div className="text-xs text-gray-400 mb-2.5">{period}</div>
+                        )}
 
-                        {/* 고지 이유 박스 */}
+                        {/* 고지 이유 박스 — RISK 색상 */}
                         {item.detail && (
-                          <div className="bg-indigo-50 text-indigo-700 text-xs rounded-lg px-3 py-2 mb-3 leading-relaxed">
+                          <div className={`${sc.bg} ${sc.text} text-xs rounded-lg px-3 py-2 mb-3 leading-relaxed`}>
                             {item.detail}
                           </div>
                         )}
 
-                        {/* 통계 칩 */}
+                        {/* 주요 통계 칩 — 4개 항목은 0이어도 항상 표시 */}
+                        <div className="flex flex-wrap gap-1.5 mb-1.5">
+                          <Chip color="gray">통원 {item.visit}회</Chip>
+                          <Chip color={item.inpatient > 0 ? "red" : "gray"}>입원 {item.inpatient}일</Chip>
+                          <Chip color={surgN > 0 ? "red" : "gray"}>수술 {surgN}건</Chip>
+                          <Chip color={item.med_days >= 30 ? "amber" : item.med_days > 0 ? "emerald" : "gray"}>
+                            투약 {item.med_days}일
+                          </Chip>
+                        </div>
+
+                        {/* 보조 칩 */}
                         <div className="flex flex-wrap gap-1.5">
-                          {item.visit > 0 && (
-                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-600">
-                              통원 {item.visit}회
-                            </span>
-                          )}
-                          {item.inpatient > 0 && (
-                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-red-100 text-red-600">
-                              입원 {item.inpatient}일
-                            </span>
-                          )}
                           {item.inpatient_count > 0 && (
                             <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-red-50 text-red-500 border border-red-200">
                               입원 {item.inpatient_count}회
                             </span>
                           )}
-                          {surgN > 0 && (
-                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-red-100 text-red-600">
-                              수술 {surgN}건
-                            </span>
-                          )}
-                          {procN > 0 && (
-                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-orange-100 text-orange-600">
-                              시술 {procN}건
-                            </span>
-                          )}
-                          {suspN > 0 && (
-                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-500">
-                              ⚠️ 수술 의심 {suspN}건
-                            </span>
-                          )}
-                          {item.med_days > 0 && (
-                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold ${
-                              item.med_days >= 30
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-emerald-100 text-emerald-700"
-                            }`}>
-                              투약 {item.med_days}일
-                            </span>
-                          )}
-                          {item.additional_test_hit && (
-                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-indigo-100 text-indigo-600">
-                              재검사
-                            </span>
-                          )}
-                          {item.treatment_ongoing === true && (
-                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-100 text-rose-600">
-                              치료 중
-                            </span>
-                          )}
-                          {item.treatment_ongoing === false && (
-                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-700">
-                              종결
-                            </span>
-                          )}
+                          {procN > 0 && <Chip color="orange">시술 {procN}건</Chip>}
+                          {suspN > 0 && <Chip color="gray">⚠️ 수술 의심 {suspN}건</Chip>}
+                          {item.additional_test_hit && <Chip color="indigo">재검사</Chip>}
+                          {item.treatment_ongoing === true  && <Chip color="rose">치료 중</Chip>}
+                          {item.treatment_ongoing === false && <Chip color="emerald">종결</Chip>}
                         </div>
 
                         {/* 수술 의심 행위명 + 의학 판단 보조 텍스트 */}
@@ -310,6 +297,17 @@ function ResultView({
                                 {item.treatment_ongoing ? "치료 중" : "종결"}: {item.treatment_ongoing_reason}
                               </p>
                             )}
+                          </div>
+                        )}
+
+                        {/* 병원 목록 */}
+                        {hosps.length > 0 && (
+                          <div className="mt-2.5 pt-2.5 border-t border-gray-100 flex flex-wrap gap-1">
+                            {hosps.map((h, hi) => (
+                              <span key={hi} className="text-[11px] text-gray-400 bg-gray-50 px-2 py-0.5 rounded">
+                                {h}
+                              </span>
+                            ))}
                           </div>
                         )}
                       </div>
