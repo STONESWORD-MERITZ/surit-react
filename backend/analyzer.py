@@ -13,6 +13,7 @@ from collections import defaultdict
 from google import genai
 from google.genai import types
 from meritz_easy_rules import evaluate_meritz_easy
+from filters import build_code_based_items as _build_code_based_items, PRODUCT_HEALTH, PRODUCT_EASY
 
 # ==========================================
 # 키워드 로딩 (keywords.json 외부화)
@@ -1170,135 +1171,9 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
             f"⚠️ 미래 날짜 {future_date_count}건 감지 (OCR 오류 가능) — 해당 레코드를 제외했습니다."
         )
 
-    # ── 코드 기반 결정론적 알릴의무 ──────────────────────────────
-    _d3m_dt  = today - timedelta(days=90)
-    _d1y_dt  = today - timedelta(days=365)
-    _d5y_dt  = today - timedelta(days=1825)
-    _d10y_dt = today - timedelta(days=3650)
-
-    code_based_items = []
-
-    for _ck, _s in disease_stats.items():
-        _dc  = (_s.get("diag_code") or _ck).strip()
-        if not _dc or _dc in ("$", "해당없음"):
-            continue
-        # 의료수가 청구 항목이 group_key로 남아있으면 스킵 (최후 방어선)
-        _nm_raw = _s.get("name") or ""
-        if not _s.get("diag_code") and ("|" in _ck or _is_billing_code(_nm_raw)):
-            continue
-        _nm  = _nm_raw or _ck
-        _hp  = " / ".join(list(_s["hospitals"])[:2]) or "정보 없음"
-        # 투약일수: 처방조제(pharma)에서만 확인
-        _med_pharma = _s["med_dates_pharma"]
-
-        def _ci(q, reason, date="", is_inp=False, inp_days=0, inp_count=0,
-                visit_count=0, is_surg=False, surg_name=None, med_days=0,
-                weight="mid", rule_id="", evidence=None,
-                _dc=_dc, _nm=_nm, _hp=_hp, _s=_s):
-            return {
-                "date": date or _s.get("latest_date",""),
-                "code": _dc, "disease": _nm, "hospital": _hp,
-                "duty_question": q, "reason": reason,
-                "is_inpatient": is_inp, "inpatient_days": inp_days,
-                "inpatient_count": inp_count,
-                "visit_count": visit_count,
-                "first_diagnosis_date": _s.get("first_date", ""),
-                "is_surgery": is_surg, "surgery_name": surg_name,
-                "med_days": med_days, "weight": weight, "_source": "code",
-                "_rule_id": rule_id,
-                "_evidence": evidence or {},
-            }
-
-        # ── 기간별 날짜 필터 ──
-        inp_3m   = _dts_in_range(_s["inpatient_dates"], _d3m_dt)
-        surg_3m  = _dts_in_range(_s["surgery_dates"], _d3m_dt)
-        inp_10y  = _dts_in_range(_s["inpatient_dates"], _d10y_dt)
-        surg_10y = _dts_in_range(_s["surgery_dates"], _d10y_dt)
-        all_5y   = _dts_in_range(_s["visit_dates"] | _s["inpatient_dates"] | _s["surgery_dates"], _d5y_dt)
-        inp_5y   = _dts_in_range(_s["inpatient_dates"], _d5y_dt)
-        surg_5y  = _dts_in_range(_s["surgery_dates"], _d5y_dt)
-        # 통원횟수: 기본진료 외래(통원)만 — visit_dates (입원 제외)
-        visit_3m  = _dts_in_range(_s["visit_dates"], _d3m_dt)
-        visit_10y = _dts_in_range(_s["visit_dates"], _d10y_dt)
-        visit_5y  = _dts_in_range(_s["visit_dates"], _d5y_dt)
-
-        # ── 입원일수/횟수 계산 (기본진료 기준) ──
-        _inp_days_map = _s.get("_inpatient_days_map", {})
-        # 입원일수 = 날짜별 내원일수 합산
-        _inp3m_days  = sum(_inp_days_map.get(d, 1) for d in inp_3m)  if inp_3m  else 0
-        _inp10y_days = sum(_inp_days_map.get(d, 1) for d in inp_10y) if inp_10y else 0
-        _inp5y_days  = sum(_inp_days_map.get(d, 1) for d in inp_5y)  if inp_5y  else 0
-        # 입원횟수 = 해당 기간 내 입원 날짜 수
-        _inp3m_count  = len(inp_3m)
-        _inp10y_count = len(inp_10y)
-        _inp5y_count  = len(inp_5y)
-
-        # ── 투약일수 (처방조제에서만) ──
-        presc_3m  = _max_presc(_med_pharma, _d3m_dt)
-        presc_10y = _max_presc(_med_pharma, _d10y_dt)
-        presc_5y  = _max_presc(_med_pharma, _d5y_dt)
-
-        _sn = next(iter(_s["surgeries"]), None)
-        _wt = ("critical" if _code_in(_dc, ("C","I60","I61","I62","I63","I64","I21","I22","K74"))
-               else "high" if _code_in(_dc, ("I10","I11","I12","I13","I14","I15","E10","E11","E12","E13","E14","I20"))
-               else "mid")
-
-        if inp_3m:
-            code_based_items.append(_ci("Q1", f"3개월 이내 입원 ({_inp3m_days}일) — 기본진료 확정",
-                date=max(inp_3m), is_inp=True, inp_days=_inp3m_days, inp_count=_inp3m_count,
-                visit_count=len(visit_3m), med_days=presc_3m, weight=_wt,
-                rule_id="R-Q1-INP-3M", evidence={"dates": inp_3m, "actual_days": _inp3m_days}))
-        if surg_3m:
-            code_based_items.append(_ci("Q1", f"3개월 이내 수술: {_sn or '수술'} — 세부진료 확정",
-                date=max(surg_3m), is_surg=True, surg_name=_sn,
-                visit_count=len(visit_3m), med_days=presc_3m, weight=_wt,
-                rule_id="R-Q1-SURG-3M", evidence={"dates": surg_3m, "surgery": _sn}))
-
-        if product_type == "간편심사 (유병자 3-5-5 기준)":
-            if inp_10y:
-                code_based_items.append(_ci("Q2", f"10년 이내 입원 ({_inp10y_days}일) — 기본진료 확정",
-                    date=max(inp_10y), is_inp=True, inp_days=_inp10y_days, inp_count=_inp10y_count,
-                    visit_count=len(visit_10y), med_days=presc_10y, weight=_wt,
-                    rule_id="R-Q2-INP-10Y", evidence={"dates": inp_10y, "actual_days": _inp10y_days}))
-            if surg_10y:
-                code_based_items.append(_ci("Q2", f"10년 이내 수술: {_sn or '수술'} — 세부진료 확정",
-                    date=max(surg_10y), is_inp=bool(inp_10y), inp_days=_inp10y_days, inp_count=_inp10y_count,
-                    visit_count=len(visit_10y), med_days=presc_10y,
-                    is_surg=True, surg_name=_sn, weight=_wt,
-                    rule_id="R-Q2-SURG-10Y", evidence={"dates": surg_10y, "surgery": _sn}))
-            if _code_in(_dc, SIMPLE_Q3_CODES) and all_5y:
-                code_based_items.append(_ci("Q3", f"5년 이내 6대 중증질환: {_nm} (코드: {_dc})",
-                    date=max(all_5y), is_inp=bool(inp_5y), inp_days=_inp5y_days, inp_count=_inp5y_count,
-                    visit_count=len(visit_5y), med_days=presc_5y,
-                    is_surg=bool(surg_5y), surg_name=_sn if surg_5y else None, weight="critical",
-                    rule_id="R-Q3-CRITICAL-5Y", evidence={"code": _dc, "matched_prefix": "SIMPLE_Q3_CODES"}))
-        else:
-            if inp_10y:
-                code_based_items.append(_ci("Q3", f"10년 이내 입원 ({_inp10y_days}일) — 기본진료 확정",
-                    date=max(inp_10y), is_inp=True, inp_days=_inp10y_days, inp_count=_inp10y_count,
-                    visit_count=len(visit_10y), med_days=presc_10y, weight=_wt,
-                    rule_id="R-Q3-INP-10Y", evidence={"dates": inp_10y, "actual_days": _inp10y_days}))
-            if surg_10y:
-                code_based_items.append(_ci("Q3", f"10년 이내 수술: {_sn or '수술'} — 세부진료 확정",
-                    date=max(surg_10y), is_inp=bool(inp_10y), inp_days=_inp10y_days, inp_count=_inp10y_count,
-                    visit_count=len(visit_10y), med_days=presc_10y,
-                    is_surg=True, surg_name=_sn, weight=_wt,
-                    rule_id="R-Q3-SURG-10Y", evidence={"dates": surg_10y, "surgery": _sn}))
-            if len(visit_10y) >= 7 and not inp_10y and not surg_10y:
-                code_based_items.append(_ci("Q3", f"10년 이내 7회이상 통원 ({len(visit_10y)}회) — 기본진료 확정",
-                    visit_count=len(visit_10y), med_days=presc_10y, weight=_wt,
-                    rule_id="R-Q3-VISIT-7", evidence={"visit_count": len(visit_10y), "dates": visit_10y}))
-            if presc_10y >= 30 and not inp_10y and not surg_10y:
-                code_based_items.append(_ci("Q3", f"10년 이내 30일이상 투약 ({presc_10y}일) — 처방조제 확정",
-                    visit_count=len(visit_10y), med_days=presc_10y, weight=_wt,
-                    rule_id="R-Q3-MED-30D", evidence={"presc_days": presc_10y, "source": "처방조제"}))
-            if _code_in(_dc, HEALTH_Q5_CODES) and all_5y:
-                code_based_items.append(_ci("Q4", f"5년 이내 중대질병: {_nm} (코드: {_dc})",
-                    date=max(all_5y), is_inp=bool(inp_5y), inp_days=_inp5y_days, inp_count=_inp5y_count,
-                    visit_count=len(visit_5y), med_days=presc_5y,
-                    is_surg=bool(surg_5y), surg_name=_sn if surg_5y else None,
-                    weight="critical" if _wt == "critical" else "high",
-                    rule_id="R-Q4-CRITICAL-5Y", evidence={"code": _dc, "matched_prefix": "HEALTH_Q4_CODES"}))
+    # ── 코드 기반 결정론적 알릴의무 (filters.py 위임) ──────────────
+    # code_based_items는 drug_change_summary 계산 후 아래에서 생성됨
+    # (drug_change_groups 를 filters.py로 전달하기 위해 순서 조정)
 
     # ── AI 전달용 raw_text 구축 ───────────────────────────────────
     raw_entries = []
@@ -1426,42 +1301,17 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                 # disease_stats에 3개월 내 약 변경 플래그 설정
                 disease_stats[group_key]["drug_change_in_3m"] = True
 
-    if product_type == "간편심사 (유병자 3-5-5 기준)":
-        for dc in drug_change_summary:
-            change_type = dc["change_type"]
-            new_d  = dc.get("new", [])
-            inc_d  = dc.get("dose_increased", [])
-            reason_parts = []
-            if change_type == "약 종류 변경":
-                reason_parts.append(f"3개월 이전 약에서 신규 약으로 변경: {', '.join(new_d[:2])}")
-            elif change_type == "새 약 추가":
-                reason_parts.append(f"3개월 이전부터 복용 중 새 약 추가: {', '.join(new_d[:2])}")
-            elif change_type == "용량 증가":
-                reason_parts.append(f"복용 중 약 용량 증가: {', '.join(inc_d[:2])}")
-            else:
-                if new_d: reason_parts.append(f"새 약 추가: {', '.join(new_d[:2])}")
-                if inc_d: reason_parts.append(f"용량 증가: {', '.join(inc_d[:2])}")
-
-            _grp_s = disease_stats.get(dc["group"], {})
-            _pm = _grp_s.get("med_dates_pharma", {}) if _grp_s else {}
-            _in_3m_dates = [d for d in _pm if _dts_in_range([d], _d3m_dt)]
-            _date = max(_in_3m_dates) if _in_3m_dates else ""
-
-            code_based_items.append({
-                "date":           _date or "",
-                "code":           dc["group"] if dc["group"] else "-",
-                "disease":        dc["name"],
-                "hospital":       "처방조제내역",
-                "duty_question":  "Q1",
-                "reason":         f"3개월 이내 처방 변경 ({change_type}) — 처방조제 확정 | " + " / ".join(reason_parts),
-                "is_inpatient":   False,
-                "inpatient_days": 0,
-                "is_surgery":     False,
-                "surgery_name":   None,
-                "med_days":       0,
-                "weight":         "high",
-                "_source":        "code",
-            })
+    # ── 코드 기반 결정론적 알릴의무 (filters.py 위임) ──────────────
+    drug_change_groups = {
+        dc["group"] for dc in drug_change_summary
+        if dc.get("change_type") in ("약 종류 변경", "새 약 추가", "용량 증가")
+    }
+    code_based_items = _build_code_based_items(
+        disease_stats=disease_stats,
+        reference_date=today,
+        product_type=product_type,
+        drug_change_groups=drug_change_groups,
+    )
 
     drug_change_text = ""
     if drug_change_summary:
