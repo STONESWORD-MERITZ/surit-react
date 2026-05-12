@@ -1,3 +1,4 @@
+import asyncio
 import gc
 import pdfplumber
 import pandas as pd
@@ -408,10 +409,251 @@ class AnalysisError(Exception):
         self.raw_response = raw_response
 
 
+def parse_single_pdf(uploaded_file, birthdate_pw) -> dict:
+    """PDF 1개 파싱. pdfplumber 동기 I/O."""
+    fname = getattr(uploaded_file, "name", None) or getattr(uploaded_file, "filename", None) or "unknown.pdf"
+    file_recs: list = []
+    parse_errors_local: list = []
+    pdf_data = uploaded_file.read()
+    try:
+        with _open_pdf(pdf_data, birthdate_pw or "") as pdf:
+            first_text = pdf.pages[0].extract_text() or "" if pdf.pages else ""
+            is_nhis = "건강보험 요양급여내역" in first_text
+
+            if is_nhis:
+                for page in pdf.pages:
+                    page_text = page.extract_text() or ""
+                    if "건강보험 요양급여내역" in page_text:
+                        recs = parse_nhis_text(page_text, fname)
+                        file_recs.extend(recs)
+                    del page_text
+            else:
+                for page in pdf.pages:
+                    tables = page.extract_tables()
+                    for table in tables:
+                        if not table or len(table) < 2:
+                            continue
+                        raw_headers = table[0]
+                        headers = [
+                            str(h).replace("\n", "").replace(" ", "") if h else f"col_{i}"
+                            for i, h in enumerate(raw_headers)
+                        ]
+                        ftype = detect_file_type(tuple(headers))
+                        for row in table[1:]:
+                            if not any(row):
+                                continue
+                            if "순번" in str(row[0]):
+                                continue
+                            rec = {h: str(v).replace("\n", " ").strip() if v else "" for h, v in zip(headers, row)}
+                            rec["_ftype"] = ftype
+                            rec["_fname"] = fname
+                            file_recs.append(rec)
+                    del tables
+    except ValueError as e:
+        parse_errors_local.append(f"🔒 {fname}: {e}")
+    except Exception as e:
+        err_str = str(e)
+        if "password" in err_str.lower() or "encrypted" in err_str.lower():
+            parse_errors_local.append(f"🔒 {fname}: 비밀번호가 걸린 PDF입니다. 생년월일을 입력해 주세요.")
+        elif "pdf" in err_str.lower() or "syntax" in err_str.lower():
+            parse_errors_local.append(f"⚠️ {fname}: 손상되었거나 지원하지 않는 PDF 형식입니다.")
+        else:
+            parse_errors_local.append(f"⚠️ {fname}: 파일 읽기 실패 — {err_str[:80]}")
+    finally:
+        del pdf_data
+        gc.collect()
+    return {"filename": fname, "records": file_recs, "parse_errors": parse_errors_local}
+
+
+def _finalize_raw_text_for_gemini(
+    filtered_lines: list[str],
+    visit_count_lines: list[str],
+    cross_surgery_hints: list[str],
+    first_diag_lines: list[str],
+    drug_change_text: str,
+    presc_end_text: str,
+) -> str:
+    raw_text = "\n".join(filtered_lines[:800])
+    if visit_count_lines:
+        raw_text = "[10년내 질병코드별 통원횟수 집계 — Q4 7회이상통원 판단 기준]\n" \
+                   + "\n".join(visit_count_lines) + "\n\n" + raw_text
+    if cross_surgery_hints:
+        raw_text = "[기본/세부 동일일자 교차검증 — 수술 추정 근거]\n" \
+                   + "\n".join(f"- {h}" for h in cross_surgery_hints[:80]) + "\n\n" + raw_text
+    if first_diag_lines:
+        raw_text = "[질병별 최초·최종 진단일 — 고지사항 최초진단일 확인]\n" \
+                   + "\n".join(first_diag_lines[:100]) + "\n\n" + raw_text
+    if drug_change_text:
+        raw_text = drug_change_text + "\n" + raw_text
+    if presc_end_text:
+        raw_text = presc_end_text + "\n" + raw_text
+    MAX_RAW_TEXT_LEN = 30_000
+    if len(raw_text) > MAX_RAW_TEXT_LEN:
+        raw_text = raw_text[:MAX_RAW_TEXT_LEN] + "\n... (truncated)"
+    return raw_text
+
+
+def _worst_insurance_verdict(*vals: str) -> str:
+    prio = {"불가": 3, "조건부": 2, "가능": 1}
+    best = ""
+    bp = 0
+    for v in vals:
+        if not v or not isinstance(v, str):
+            continue
+        vv = v.strip()
+        p = prio.get(vv, 0)
+        if p > bp:
+            bp = p
+            best = vv
+    return best or "가능"
+
+
+def _merge_ai_results(parts: list[dict]) -> dict:
+    if not parts:
+        raise AnalysisError("AI 분석 결과가 없습니다.")
+    merged: dict = {
+        "flagged_items": [],
+        "exempt_items": [],
+        "drug_change_hit": False,
+        "drug_change_reason": "",
+        "total_flagged": 0,
+    }
+    hit_bool_keys = [
+        "q1_hit", "q2_hit", "q3_hit", "q4_hit", "q5_hit",
+        "simple_q1_hit", "simple_q2_hit", "simple_q3_hit",
+    ]
+    reason_join_keys = [
+        "q1_reason", "q2_reason", "q3_reason", "q4_reason", "q5_reason",
+        "simple_q1_reason", "simple_q2_reason",
+    ]
+    for p in parts:
+        merged["flagged_items"].extend(p.get("flagged_items") or [])
+        merged["exempt_items"].extend(p.get("exempt_items") or [])
+        if p.get("drug_change_hit"):
+            merged["drug_change_hit"] = True
+
+    for k in hit_bool_keys:
+        merged[k] = any(bool(x.get(k)) for x in parts)
+
+    for k in reason_join_keys:
+        texts = [x.get(k) for x in parts if x.get(k)]
+        merged[k] = "; ".join(texts) if texts else ""
+
+    dcr = [x.get("drug_change_reason") for x in parts if x.get("drug_change_reason")]
+    merged["drug_change_reason"] = "; ".join(dcr) if dcr else ""
+
+    sq3 = None
+    for x in parts:
+        v = x.get("simple_q3_disease")
+        if v:
+            sq3 = v
+            break
+    merged["simple_q3_disease"] = sq3
+
+    merged["health_verdict"] = _worst_insurance_verdict(*(x.get("health_verdict") or "" for x in parts))
+    hr = [x.get("health_reason") for x in parts if x.get("health_reason")]
+    merged["health_reason"] = "; ".join(hr) if hr else ""
+
+    merged["simple_verdict"] = _worst_insurance_verdict(*(x.get("simple_verdict") or "" for x in parts))
+    sr = [x.get("simple_reason") for x in parts if x.get("simple_reason")]
+    merged["simple_reason"] = "; ".join(sr) if sr else ""
+
+    rec = [x.get("recommend") for x in parts if x.get("recommend")]
+    merged["recommend"] = "; ".join(rec) if rec else ""
+
+    summ = [x.get("summary") for x in parts if x.get("summary")]
+    merged["summary"] = "\n".join(summ) if summ else ""
+
+    merged["total_flagged"] = len(merged["flagged_items"])
+    return merged
+
+
+async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_date, api_key: str) -> dict:
+    """파싱된 PDF 1건에 대해 Gemini 분석 (비동기)."""
+    _ = reference_date
+    fname = parsed_data["filename"]
+    today_str = parsed_data["today_str"]
+    raw_text = parsed_data["raw_text"]
+    system_prompt = parsed_data["system_prompt"]
+    retry_local: list[str] = []
+
+    GEMINI_TIMEOUT_SECONDS = 240
+    try:
+        api_client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_SECONDS * 1000),
+        )
+    except TypeError:
+        api_client = genai.Client(api_key=api_key)
+
+    ai_result = None
+    last_error = None
+    raw_response = ""
+    MAX_RETRIES = 5
+    RETRY_DELAYS = [5, 10, 20, 40, 60]
+    contents = f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n진료 데이터:\n{raw_text}"
+    config = types.GenerateContentConfig(system_instruction=system_prompt)
+
+    def _sync_generate():
+        return api_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents,
+            config=config,
+        )
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            if hasattr(api_client, "aio") and hasattr(api_client.aio.models, "generate_content"):
+                message = await api_client.aio.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=contents,
+                    config=config,
+                )
+            else:
+                message = await asyncio.to_thread(_sync_generate)
+            raw_response = message.text if getattr(message, "text", None) else ""
+            if not raw_response.strip():
+                raise ValueError("AI 응답이 비어있습니다.")
+            ai_result = extract_json(raw_response)
+            break
+        except (ValueError, json.JSONDecodeError) as e:
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                continue
+            return {
+                "filename": fname,
+                "ai_result": None,
+                "retry_warnings": retry_local,
+                "error": f"AI 응답 파싱 오류: {e}",
+                "raw_response_snip": raw_response[:800],
+            }
+        except Exception as e:
+            err_str = str(e)
+            if ("503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str) \
+                    and attempt < MAX_RETRIES - 1:
+                wait = RETRY_DELAYS[attempt]
+                retry_local.append(
+                    f"[{fname}] Gemini 서버 과부하로 {wait}초 후 재시도합니다... ({attempt + 1}/{MAX_RETRIES - 1})"
+                )
+                await asyncio.sleep(wait)
+                continue
+            return {"filename": fname, "ai_result": None, "retry_warnings": retry_local, "error": str(e)}
+
+    if ai_result is None:
+        return {
+            "filename": fname,
+            "ai_result": None,
+            "retry_warnings": retry_local,
+            "error": str(last_error),
+            "raw_response_snip": raw_response[:800] if raw_response else "",
+        }
+    return {"filename": fname, "ai_result": ai_result, "retry_warnings": retry_local, "error": None}
+
+
 # ==========================================
 # 분석 엔진
 # ==========================================
-def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_key) -> dict:
+async def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_key) -> dict:
     """
     PDF 파일들을 분석하여 알릴의무 항목을 추출합니다.
 
@@ -428,61 +670,19 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
     parse_errors = []
     retry_warnings = []
 
-    # ── PDF 파싱 ──────────────────────────────────────────────────
-    for uploaded_file in active_files:
-        file_recs = []
-        pdf_data = uploaded_file.read()
-        try:
-            with _open_pdf(pdf_data, birthdate_pw or "") as pdf:
-                first_text = pdf.pages[0].extract_text() or "" if pdf.pages else ""
-                is_nhis = "건강보험 요양급여내역" in first_text
-
-                if is_nhis:
-                    for page in pdf.pages:
-                        page_text = page.extract_text() or ""
-                        if "건강보험 요양급여내역" in page_text:
-                            recs = parse_nhis_text(page_text, uploaded_file.name)
-                            file_recs.extend(recs)
-                            all_records.extend(recs)
-                        del page_text
-                else:
-                    for page in pdf.pages:
-                        tables = page.extract_tables()
-                        for table in tables:
-                            if not table or len(table) < 2:
-                                continue
-                            raw_headers = table[0]
-                            headers = [
-                                str(h).replace("\n", "").replace(" ", "") if h else f"col_{i}"
-                                for i, h in enumerate(raw_headers)
-                            ]
-                            ftype = detect_file_type(tuple(headers))
-                            for row in table[1:]:
-                                if not any(row):
-                                    continue
-                                if "순번" in str(row[0]):
-                                    continue
-                                rec = {h: str(v).replace("\n", " ").strip() if v else "" for h, v in zip(headers, row)}
-                                rec["_ftype"] = ftype
-                                rec["_fname"] = uploaded_file.name
-                                all_records.append(rec)
-                                file_recs.append(rec)
-                        del tables
-        except ValueError as e:
-            parse_errors.append(f"🔒 {uploaded_file.name}: {e}")
+    # ── PDF 파싱 (병렬 스레드 — pdfplumber 동기) ──────────────────
+    parse_results = await asyncio.gather(
+        *[asyncio.to_thread(parse_single_pdf, uf, birthdate_pw) for uf in active_files],
+        return_exceptions=True,
+    )
+    for i, pr in enumerate(parse_results):
+        uf = active_files[i]
+        fn = getattr(uf, "name", None) or getattr(uf, "filename", None) or f"file_{i}"
+        if isinstance(pr, BaseException):
+            parse_errors.append(f"⚠️ {fn}: PDF 파싱 중 예외 — {str(pr)[:120]}")
             continue
-        except Exception as e:
-            err_str = str(e)
-            if "password" in err_str.lower() or "encrypted" in err_str.lower():
-                parse_errors.append(f"🔒 {uploaded_file.name}: 비밀번호가 걸린 PDF입니다. 생년월일을 입력해 주세요.")
-            elif "pdf" in err_str.lower() or "syntax" in err_str.lower():
-                parse_errors.append(f"⚠️ {uploaded_file.name}: 손상되었거나 지원하지 않는 PDF 형식입니다.")
-            else:
-                parse_errors.append(f"⚠️ {uploaded_file.name}: 파일 읽기 실패 — {err_str[:80]}")
-            continue
-        finally:
-            del pdf_data, file_recs
-            gc.collect()
+        all_records.extend(pr["records"])
+        parse_errors.extend(pr["parse_errors"])
 
     if not all_records:
         raise AnalysisError("PDF에서 데이터를 추출하지 못했습니다. 파일 형식이나 비밀번호를 확인해 주세요.")
@@ -847,7 +1047,7 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
                     rule_id="R-Q5-CRITICAL-5Y", evidence={"code": _dc, "matched_prefix": "HEALTH_Q5_CODES"}))
 
     # ── AI 전달용 raw_text 구축 ───────────────────────────────────
-    raw_text_lines = []
+    raw_entries = []
     seen_code_dates = set()
 
     for _, row in df.iterrows():
@@ -882,6 +1082,8 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             continue
         seen_code_dates.add(dedup_key)
 
+        fname_row = str(row.get("_fname", "") or "")
+
         inpatient_flag = "입원" if "입원" in in_out else ""
         line_date = parse_date(date_str) or date_str
 
@@ -890,12 +1092,13 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             _act = get_val(row, ["행위명칭", "행위명", "진료내역", "처치"])
             if _act:
                 act_suffix = f" 행위:{_act[:25]}"
-        raw_text_lines.append(
+        line_core = (
             f"{line_date} [{ftype}] {code_str} {display_name}{act_suffix} {hospital[:10]}"
             + (f" 투약{m_days}일" if m_days and m_days != "0" else "")
             + (f" 진료비{cost_raw}" if cost_raw else "")
             + (f" {inpatient_flag}" if inpatient_flag else "")
         )
+        raw_entries.append((fname_row, line_core))
 
     # DataFrame/원본 레코드 해제 — 이후 disease_stats만 사용
     del df, all_records
@@ -1063,17 +1266,17 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             presc_end_text += "\n★ 3개월 이내 처방이 있으나 모두 복약 완료 상태 — 투약 관련 Q1은 면제 가능\n"
 
     # ── 날짜 태그 필터링 ─────────────────────────────────────────
-    filtered_lines = []
-    for line in raw_text_lines:
+    filtered_entries = []
+    for fname_row, line in raw_entries:
         date_match = re.search(r'(\d{4}-\d{2}-\d{2})', line)
         if not date_match:
-            filtered_lines.append(line)
+            filtered_entries.append((fname_row, line))
             continue
         line_date = date_match.group(1)
         try:
             dt = datetime.strptime(line_date, "%Y-%m-%d")
         except ValueError:
-            filtered_lines.append(line)
+            filtered_entries.append((fname_row, line))
             continue
         days_ago = (today - dt).days
         if days_ago < 0 or days_ago > 3650:
@@ -1083,18 +1286,21 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
         if days_ago <= 365:  tags.append("IN_1Y")
         if days_ago <= 1825: tags.append("IN_5Y")
         if days_ago <= 3650: tags.append("IN_10Y")
-        filtered_lines.append(line + " [" + ",".join(tags) + "]")
+        filtered_entries.append((fname_row, line + " [" + ",".join(tags) + "]"))
 
-    raw_text = "\n".join(filtered_lines[:800])
+    filtered_lines = [t[1] for t in filtered_entries]
+    lines_by_file = defaultdict(list)
+    for fname_row, tl in filtered_entries:
+        if fname_row:
+            lines_by_file[fname_row].append(tl)
 
     # ── 통원횟수·처방일수 집계 ───────────────────────────────────
-    d_10y_dt = today - timedelta(days=3650)
     visit_count_lines = []
     for _code, _s in disease_stats.items():
         _visits_in_10y = []
         for _d in _s["visit_dates"]:
             try:
-                if datetime.strptime(_d, "%Y-%m-%d") >= d_10y_dt:
+                if datetime.strptime(_d, "%Y-%m-%d") >= _d10y_dt:
                     _visits_in_10y.append(_d)
             except ValueError:
                 pass
@@ -1102,7 +1308,7 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
         _max_presc_days = 0
         for _pd, _pv in _med_dict.items():
             try:
-                if datetime.strptime(_pd, "%Y-%m-%d") >= d_10y_dt:
+                if datetime.strptime(_pd, "%Y-%m-%d") >= _d10y_dt:
                     if _pv > _max_presc_days:
                         _max_presc_days = _pv
             except ValueError:
@@ -1117,12 +1323,6 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             visit_count_lines.append(
                 f"[통원집계] {_code} {_name} 10년내통원{_cnt}회 ({_first}~{_last}){_presc_note}{_7day_flag}"
             )
-    if visit_count_lines:
-        raw_text = "[10년내 질병코드별 통원횟수 집계 — Q4 7회이상통원 판단 기준]\n" \
-                   + "\n".join(visit_count_lines) + "\n\n" + raw_text
-    if cross_surgery_hints:
-        raw_text = "[기본/세부 동일일자 교차검증 — 수술 추정 근거]\n" \
-                   + "\n".join(f"- {h}" for h in cross_surgery_hints[:80]) + "\n\n" + raw_text
 
     # ── 최초 진단일 정보 (동일코드 기준) ────────────────────────────
     first_diag_lines = []
@@ -1132,19 +1332,6 @@ def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_k
             _dc = _s.get("diag_code") or _ck
             _nm = _s.get("name", "")[:20]
             first_diag_lines.append(f"  {_dc} {_nm} 최초={_fd} 최종={_s.get('latest_date','')}")
-    if first_diag_lines:
-        raw_text = "[질병별 최초·최종 진단일 — 고지사항 최초진단일 확인]\n" \
-                   + "\n".join(first_diag_lines[:100]) + "\n\n" + raw_text
-
-    if drug_change_text:
-        raw_text = drug_change_text + "\n" + raw_text
-    if presc_end_text:
-        raw_text = presc_end_text + "\n" + raw_text
-
-    # ── raw_text 길이 제한 (Render 512MB 메모리 제약) ─────────────
-    MAX_RAW_TEXT_LEN = 30_000
-    if len(raw_text) > MAX_RAW_TEXT_LEN:
-        raw_text = raw_text[:MAX_RAW_TEXT_LEN] + "\n... (truncated)"
 
     # ── 프롬프트 구성 ─────────────────────────────────────────────
     if product_type == "건강체/표준체 (일반심사)":
@@ -1502,54 +1689,56 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 6대 중증�
 절대 규칙: 응답은 반드시 {{ 로 시작하고 }} 로 끝나는 순수 JSON만 출력하세요.
 설명, 주석, 마크다운 백틱, 전후 텍스트 일체 금지."""
 
-    # ── Gemini API 호출 ───────────────────────────────────────────
-    GEMINI_TIMEOUT_SECONDS = 240
-    try:
-        api_client = genai.Client(
-            api_key=api_key,
-            http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_SECONDS * 1000),
+    # ── Gemini API 호출 (PDF별 병렬, Semaphore(5)) ────────────────
+    gemini_payloads = []
+    for uf in active_files:
+        fn = getattr(uf, "name", None) or getattr(uf, "filename", None) or "unknown.pdf"
+        flines = lines_by_file.get(fn, [])
+        rt_part = _finalize_raw_text_for_gemini(
+            flines,
+            visit_count_lines,
+            cross_surgery_hints,
+            first_diag_lines,
+            drug_change_text,
+            presc_end_text,
         )
-    except TypeError:
-        # Backward compatibility for older google-genai versions without HttpOptions timeout support.
-        api_client = genai.Client(api_key=api_key)
-    ai_result = None
-    last_error = None
-    raw_response = ""
-    MAX_RETRIES = 5
-    RETRY_DELAYS = [5, 10, 20, 40, 60]
+        gemini_payloads.append({
+            "filename": fn,
+            "raw_text": rt_part,
+            "system_prompt": system_prompt,
+            "today_str": today_str,
+        })
 
-    for attempt in range(MAX_RETRIES):
-        try:
-            message = api_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n진료 데이터:\n{raw_text}",
-                config=types.GenerateContentConfig(system_instruction=system_prompt),
-            )
-            raw_response = message.text if message.text else ""
-            if not raw_response.strip():
-                raise ValueError("AI 응답이 비어있습니다.")
-            ai_result = extract_json(raw_response)
-            break
-        except (ValueError, json.JSONDecodeError) as e:
-            last_error = e
-            if attempt < MAX_RETRIES - 1:
-                continue
-            raise AnalysisError(f"AI 응답 파싱 오류: {e}", raw_response=raw_response[:800])
-        except Exception as e:
-            err_str = str(e)
-            if ("503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str) \
-                    and attempt < MAX_RETRIES - 1:
-                wait = RETRY_DELAYS[attempt]
-                retry_warnings.append(f"Gemini 서버 과부하로 {wait}초 후 재시도합니다... ({attempt + 1}/{MAX_RETRIES - 1})")
-                time.sleep(wait)
-                continue
-            raise AnalysisError(f"Gemini API 호출 오류: {e}")
+    sem = asyncio.Semaphore(5)
 
-    if ai_result is None:
-        raise AnalysisError(f"AI 분석 실패: {last_error}")
+    async def _guarded_gemini(pd: dict):
+        async with sem:
+            return await analyze_single_pdf(pd, product_type, reference_date, api_key)
+
+    gemini_out = await asyncio.gather(
+        *[_guarded_gemini(pd) for pd in gemini_payloads],
+        return_exceptions=True,
+    )
+
+    ai_successes: list[dict] = []
+    for i, go in enumerate(gemini_out):
+        fn = gemini_payloads[i]["filename"]
+        if isinstance(go, BaseException):
+            retry_warnings.append(f"⚠️ {fn}: Gemini 병렬 태스크 예외 — {str(go)[:120]}")
+            continue
+        retry_warnings.extend(go.get("retry_warnings") or [])
+        if go.get("error"):
+            retry_warnings.append(f"⚠️ {fn}: {go['error']}")
+        if go.get("ai_result"):
+            ai_successes.append(go["ai_result"])
+
+    if not ai_successes:
+        raise AnalysisError("모든 PDF에 대한 AI 분석에 실패했습니다.")
+
+    ai_result = _merge_ai_results(ai_successes)
 
     # 프롬프트/API 관련 대형 문자열 해제
-    del raw_text, raw_response, system_prompt, raw_text_lines
+    del system_prompt
     del cross_day_index, seen_code_dates
     gc.collect()
 
