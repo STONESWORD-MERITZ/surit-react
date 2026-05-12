@@ -6,9 +6,9 @@ function connectionErrorMessage(apiBase: string): string {
   return (
     "서버에 연결할 수 없습니다(Failed to fetch). " +
     (typeof window !== "undefined" && window.location.hostname !== "localhost"
-      ? `프론트 배포 환경에서는 Vercel(또는 호스팅)에 백엔드 주소를 VITE_API_URL로 설정해야 합니다. (현재 요청: ${apiBase}) `
+      ? `프론트 배포 환경에서는 VITE_API_URL로 백엔드 주소를 설정해야 합니다. (현재 요청: ${apiBase}) `
       : "") +
-    "백엔드가 실행 중인지, 주소·HTTPS 여부·Railway 백엔드 CORS 설정을 확인해 주세요."
+    "백엔드가 실행 중인지, CORS 설정을 확인해 주세요."
   );
 }
 
@@ -22,6 +22,7 @@ type SummaryItem = {
   med_days: number;
   inpatient: number;
   inpatient_count: number;
+  surgery_count?: number;
   surgeries: string[];
   hospitals: string[];
   detail: string;
@@ -41,73 +42,281 @@ type AnalyzeResult = {
   recommend: string;
 };
 
-function CollapsibleSection({
-  title,
-  badge,
-  defaultOpen = false,
-  children,
+// ── 위험도 판정 ──────────────────────────────────────────────
+type Risk = "red" | "yellow" | "green";
+
+function riskOf(item: SummaryItem): Risk {
+  if (item.inpatient > 0 || (item.surgery_count ?? item.surgeries?.length ?? 0) > 0) return "red";
+  if (item.med_days >= 30 || item.visit >= 7) return "yellow";
+  return "green";
+}
+
+const RISK = {
+  red:    { border: "border-red-400",     label: "text-red-600",     pill: "bg-red-100 text-red-600" },
+  yellow: { border: "border-amber-400",   label: "text-amber-600",   pill: "bg-amber-100 text-amber-700" },
+  green:  { border: "border-emerald-400", label: "text-emerald-600", pill: "bg-emerald-100 text-emerald-700" },
+};
+
+// ── 질환 중복 통합 (동일 코드 → 배지 합산) ──────────────────
+type DiseaseEntry = { item: SummaryItem; badges: string[] };
+
+function buildDiseaseList(reports: Record<string, SummaryItem[]>): DiseaseEntry[] {
+  const map = new Map<string, DiseaseEntry>();
+  const order: string[] = [];
+
+  const sorted = Object.entries(reports).sort(([a], [b]) => {
+    const na = parseInt(a.match(/\d+/)?.[0] ?? "999", 10);
+    const nb = parseInt(b.match(/\d+/)?.[0] ?? "999", 10);
+    return na - nb;
+  });
+
+  for (const [qTitle, items] of sorted) {
+    const badge = qTitle.match(/Q\d+|간편\d+번/)?.[0] ?? "Q";
+    for (const item of items) {
+      const key = item.code || item.name || "unknown";
+      if (!map.has(key)) {
+        order.push(key);
+        map.set(key, { item: { ...item }, badges: [badge] });
+      } else {
+        const e = map.get(key)!;
+        if (!e.badges.includes(badge)) e.badges.push(badge);
+        e.item.inpatient       = Math.max(e.item.inpatient, item.inpatient);
+        e.item.inpatient_count = Math.max(e.item.inpatient_count, item.inpatient_count);
+        e.item.visit           = Math.max(e.item.visit, item.visit);
+        e.item.med_days        = Math.max(e.item.med_days, item.med_days);
+        const sc = item.surgery_count ?? item.surgeries?.length ?? 0;
+        e.item.surgery_count   = Math.max(e.item.surgery_count ?? 0, sc);
+        e.item.surgeries = [...new Set([...(e.item.surgeries ?? []), ...(item.surgeries ?? [])])];
+      }
+    }
+  }
+
+  return order.map(k => map.get(k)!);
+}
+
+// ── 추천 심사 라벨 ──────────────────────────────────────────
+function recLabel(verdict: string, recommend: string): { text: string; risk: Risk } {
+  const v = (verdict ?? "").toLowerCase();
+  const r = (recommend ?? "").toLowerCase();
+  if (v.includes("불가") || r.includes("불가") || r.includes("거절"))
+    return { text: "거절 위험", risk: "red" };
+  if (v.includes("조건부") || r.includes("간편") || r.includes("전환"))
+    return { text: "간편 전환", risk: "yellow" };
+  return { text: "건강체 가능", risk: "green" };
+}
+
+// ── 결과 뷰 ─────────────────────────────────────────────────
+function ResultView({
+  result, copied, kakaoOpen,
+  setKakaoOpen, handleCopy,
 }: {
-  title: string;
-  badge?: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
+  result: AnalyzeResult;
+  copied: boolean;
+  kakaoOpen: boolean;
+  setKakaoOpen: (v: boolean) => void;
+  handleCopy: () => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const diseases = buildDiseaseList(result.summary_reports);
+  const rec = recLabel(result.verdict, result.recommend);
 
   return (
-    <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] mb-4 overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition-colors"
-      >
-        <div className="flex items-center gap-3">
-          {badge && (
-            <span className="text-xs font-bold bg-[#4F46E5] text-white px-2.5 py-1 rounded-lg">
-              {badge}
-            </span>
+    <div>
+      {/* 카카오톡 메시지 */}
+      {result.kakao_message && (
+        <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] mb-6 overflow-hidden">
+          <div className="px-5 py-4 flex items-center justify-between">
+            <button
+              onClick={() => setKakaoOpen(!kakaoOpen)}
+              className="flex items-center gap-2 text-left"
+            >
+              <svg
+                className={`w-4 h-4 text-gray-400 transition-transform ${kakaoOpen ? "rotate-180" : ""}`}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              <span className="text-sm font-bold text-gray-800">카카오톡 전송용 메시지</span>
+            </button>
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-sm"
+              style={{ background: "#FEE500", color: "#191919" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+                <path d="M9 1C4.58 1 1 3.8 1 7.24c0 2.22 1.48 4.17 3.7 5.27l-.94 3.47c-.08.3.26.54.52.36L8.05 13.7c.31.03.63.05.95.05 4.42 0 8-2.8 8-6.24S13.42 1 9 1Z" fill="#191919" />
+              </svg>
+              {copied ? "복사 완료!" : "복사하기"}
+            </button>
+          </div>
+          {kakaoOpen && (
+            <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed bg-gray-50 px-5 py-4">
+              {result.kakao_message}
+            </pre>
           )}
-          <span className="text-sm font-bold text-gray-800">{title}</span>
         </div>
-        <svg
-          className={`w-4 h-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && <div className="px-5 pb-4">{children}</div>}
+      )}
+
+      {/* 상단 요약 카드 4개 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {/* 고지 질환 수 */}
+        <div className="bg-white rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+          <div className="text-xs text-gray-400 font-semibold mb-1">고지 질환 수</div>
+          <div className={`text-3xl font-bold font-mono leading-none ${result.flagged_count > 0 ? "text-red-500" : "text-gray-900"}`}>
+            {result.flagged_count}
+            <span className="text-sm font-semibold ml-1 text-gray-500">개</span>
+          </div>
+        </div>
+
+        {/* 해당 문항 수 */}
+        <div className="bg-white rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+          <div className="text-xs text-gray-400 font-semibold mb-1">해당 문항 수</div>
+          <div className={`text-3xl font-bold font-mono leading-none ${result.total_q_count > 2 ? "text-amber-500" : "text-gray-900"}`}>
+            {result.total_q_count}
+            <span className="text-sm font-semibold ml-1 text-gray-500">개</span>
+          </div>
+        </div>
+
+        {/* 총 진료일 */}
+        <div className="bg-white rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+          <div className="text-xs text-gray-400 font-semibold mb-1">총 진료일</div>
+          <div className="text-3xl font-bold font-mono leading-none text-gray-900">
+            {result.total_visit_sum}
+            <span className="text-sm font-semibold ml-1 text-gray-500">일</span>
+          </div>
+        </div>
+
+        {/* 추천 심사 */}
+        <div className={`rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.06)] ${
+          rec.risk === "red" ? "bg-red-50" : rec.risk === "yellow" ? "bg-amber-50" : "bg-emerald-50"
+        }`}>
+          <div className="text-xs text-gray-400 font-semibold mb-1">추천 심사</div>
+          <div className={`text-lg font-extrabold leading-tight ${
+            rec.risk === "red" ? "text-red-600" : rec.risk === "yellow" ? "text-amber-600" : "text-emerald-600"
+          }`}>
+            {rec.text}
+          </div>
+        </div>
+      </div>
+
+      {/* 파싱 오류 (심각한 것만) */}
+      {result.parse_errors
+        .filter(e => e.includes("🔒") || e.includes("손상") || e.includes("비밀번호"))
+        .map((e, i) => (
+          <div key={i} className="bg-amber-50 rounded-xl p-3 mb-3 text-sm text-amber-700 font-semibold">
+            {e}
+          </div>
+        ))}
+
+      {/* 질환별 카드 */}
+      {diseases.length > 0 ? (
+        <div className="space-y-3">
+          {diseases.map(({ item, badges }, idx) => {
+            const risk   = riskOf(item);
+            const s      = RISK[risk];
+            const surgN  = item.surgery_count ?? item.surgeries?.length ?? 0;
+            const period =
+              item.first_date && item.latest_date && item.first_date !== item.latest_date
+                ? `${item.first_date} ~ ${item.latest_date}`
+                : item.first_date || item.latest_date || "";
+
+            return (
+              <div
+                key={idx}
+                className={`bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] border-l-4 ${s.border}`}
+              >
+                <div className="px-5 py-4">
+                  {/* 질병명 + 코드 + 문항 배지 */}
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="text-[15px] font-bold text-gray-900 truncate">
+                        {item.name || "질병명 없음"}
+                      </span>
+                      {item.code && (
+                        <span className="font-mono text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded shrink-0">
+                          {item.code}
+                        </span>
+                      )}
+                    </div>
+                    {/* 문항 배지 */}
+                    <div className="flex gap-1 shrink-0">
+                      {badges.map(b => (
+                        <span
+                          key={b}
+                          className="text-[11px] font-bold bg-[#4F46E5] text-white px-2 py-0.5 rounded-md"
+                        >
+                          {b}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 진료기간 */}
+                  {period && (
+                    <div className="text-xs text-gray-400 mb-3">{period}</div>
+                  )}
+
+                  {/* 통계 pill */}
+                  <div className="flex flex-wrap gap-2">
+                    {item.visit > 0 && (
+                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-gray-100 text-gray-600">
+                        통원 {item.visit}회
+                      </span>
+                    )}
+                    {item.inpatient > 0 && (
+                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-red-100 text-red-600">
+                        입원 {item.inpatient}일
+                      </span>
+                    )}
+                    {surgN > 0 && (
+                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-orange-100 text-orange-600">
+                        수술 {surgN}건
+                      </span>
+                    )}
+                    {item.med_days > 0 && (
+                      <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
+                        item.med_days >= 30
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-emerald-100 text-emerald-700"
+                      }`}>
+                        투약 {item.med_days}일
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="bg-emerald-50 rounded-2xl p-8 text-center shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+          <div className="text-4xl mb-3">✅</div>
+          <p className="text-sm font-bold text-emerald-700">고지 대상 항목이 없습니다</p>
+        </div>
+      )}
     </div>
   );
 }
 
-
+// ── 메인 ────────────────────────────────────────────────────
 export default function Disclosure() {
   const [productType, setProductType] = useState("standard");
-  const [refDate, setRefDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [birthdate, setBirthdate] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<AnalyzeResult | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [kakaoOpen, setKakaoOpen] = useState(false);
+  const [refDate, setRefDate]         = useState(() => new Date().toISOString().slice(0, 10));
+  const [birthdate, setBirthdate]     = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState("");
+  const [result, setResult]           = useState<AnalyzeResult | null>(null);
+  const [copied, setCopied]           = useState(false);
+  const [kakaoOpen, setKakaoOpen]     = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // 페이지 로드 시 백엔드 wake-up (cold start 대비)
   useEffect(() => {
     fetch(`${API_BASE}/api/health`).catch(() => {});
   }, []);
 
   const analyze = async () => {
     const files = fileRef.current?.files;
-    if (!files?.length) {
-      setError("PDF 파일을 업로드해 주세요.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    setResult(null);
+    if (!files?.length) { setError("PDF 파일을 업로드해 주세요."); return; }
+    setLoading(true); setError(""); setResult(null);
 
     const form = new FormData();
     for (const f of files) form.append("files", f);
@@ -127,14 +336,10 @@ export default function Disclosure() {
       }
       setResult(await res.json());
     } catch (e: unknown) {
-      if (
-        e instanceof TypeError &&
-        (e.message === "Failed to fetch" || e.message.includes("fetch"))
-      ) {
+      if (e instanceof TypeError && e.message.includes("fetch"))
         setError(connectionErrorMessage(API_BASE));
-      } else {
+      else
         setError(e instanceof Error ? e.message : "알 수 없는 오류");
-      }
     } finally {
       setLoading(false);
     }
@@ -161,13 +366,12 @@ export default function Disclosure() {
       {/* 설정 카드 */}
       <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] p-6 mb-5">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* 심사 기준 */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">심사 기준</label>
             <div className="flex gap-2">
               {[
                 { value: "standard", label: "건강체/표준체" },
-                { value: "easy", label: "간편심사" },
+                { value: "easy",     label: "간편심사" },
               ].map((opt) => (
                 <button
                   key={opt.value}
@@ -184,7 +388,6 @@ export default function Disclosure() {
             </div>
           </div>
 
-          {/* 기준일 */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">기준일 (청약예정일)</label>
             <input
@@ -195,7 +398,6 @@ export default function Disclosure() {
             />
           </div>
 
-          {/* 생년월일 */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               생년월일 <span className="text-gray-300 font-normal">(선택)</span>
@@ -210,7 +412,6 @@ export default function Disclosure() {
           </div>
         </div>
 
-        {/* 업로드 */}
         <div className="mt-5 bg-indigo-50 border-2 border-dashed border-indigo-200 rounded-2xl p-6 text-center hover:border-indigo-400 hover:bg-indigo-100/50 transition-all duration-200">
           <input
             ref={fileRef}
@@ -224,7 +425,6 @@ export default function Disclosure() {
           </p>
         </div>
 
-        {/* 분석 버튼 */}
         <button
           onClick={analyze}
           disabled={loading}
@@ -236,173 +436,20 @@ export default function Disclosure() {
 
       {/* 에러 */}
       {error && (
-        <div className="bg-red-50 rounded-2xl p-4 mb-5 text-sm text-red-600 font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+        <div className="bg-red-50 rounded-2xl p-4 mb-5 text-sm text-red-600 font-semibold">
           {error}
         </div>
       )}
 
       {/* 결과 */}
       {result && (
-        <div>
-          {/* 카카오톡 복사 (설계매니저 전송용) — 접기/펼치기 */}
-          {result.kakao_message && (
-            <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] mb-6 overflow-hidden">
-              <div className="px-5 py-4 flex items-center justify-between">
-                <button
-                  onClick={() => setKakaoOpen(!kakaoOpen)}
-                  className="flex items-center gap-2 text-left"
-                >
-                  <svg
-                    className={`w-4 h-4 text-gray-400 transition-transform ${kakaoOpen ? "rotate-180" : ""}`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                  <span className="text-sm font-bold text-gray-800">카카오톡 전송용 메시지</span>
-                </button>
-                <button
-                  onClick={handleCopy}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-sm transition-colors"
-                  style={{ background: "#FEE500", color: "#191919" }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-                    <path
-                      d="M9 1C4.58 1 1 3.8 1 7.24c0 2.22 1.48 4.17 3.7 5.27l-.94 3.47c-.08.3.26.54.52.36L8.05 13.7c.31.03.63.05.95.05 4.42 0 8-2.8 8-6.24S13.42 1 9 1Z"
-                      fill="#191919"
-                    />
-                  </svg>
-                  {copied ? "복사 완료!" : "복사하기"}
-                </button>
-              </div>
-              {kakaoOpen && (
-                <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed bg-gray-50 px-5 py-4 mx-0">
-                  {result.kakao_message}
-                </pre>
-              )}
-            </div>
-          )}
-
-          {/* 요약 수치 */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            {[
-              { label: "고지 질병 수", value: result.flagged_count, warn: result.flagged_count > 0 },
-              { label: "해당 질문 수", value: result.total_q_count, warn: result.total_q_count > 3 },
-              { label: "총 통원 횟수", value: result.total_visit_sum, warn: false },
-              { label: "총 투약일수", value: result.total_med_sum, warn: result.total_med_sum >= 30 },
-            ].map((s) => (
-              <div
-                key={s.label}
-                className="bg-white rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.06)]"
-              >
-                <div className="text-xs text-gray-400 font-semibold mb-1">{s.label}</div>
-                <div className={`text-3xl font-bold font-mono leading-none ${s.warn ? "text-red-500" : "text-gray-900"}`}>
-                  {s.value}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* 경고 */}
-          {result.parse_errors.map((e, i) => (
-            <div key={i} className="bg-amber-50 rounded-xl p-3 mb-2 text-sm text-amber-600 font-semibold">
-              {e}
-            </div>
-          ))}
-
-          {/* 고지 항목 - 접기/펼치기 */}
-          {Object.entries(result.summary_reports)
-            .sort(([a], [b]) => {
-              const numA = parseInt(a.match(/(\d+)번질문/)?.[1] ?? a.match(/\d+/)?.[0] ?? "999", 10);
-              const numB = parseInt(b.match(/(\d+)번질문/)?.[1] ?? b.match(/\d+/)?.[0] ?? "999", 10);
-              return numA - numB;
-            })
-            .map(([qTitle, items]) => {
-            const badge = qTitle.match(/Q\d+|간편\d+번/)?.[0] || "Q";
-            const title = qTitle.replace(/^\[.*?\]\s*/, "");
-
-            return (
-              <CollapsibleSection key={qTitle} title={title} badge={badge} defaultOpen>
-                {items.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className={`rounded-xl p-4 mb-2 last:mb-0 bg-gray-50`}
-                  >
-                    {/* 질병명 + 코드 */}
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-sm font-bold text-gray-800">{item.name}</span>
-                      {item.code && (
-                        <span className="font-mono text-[0.7rem] text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">
-                          {item.code}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* 최초진단일 / 날짜 / 병원 */}
-                    <div className="text-xs text-gray-400 mb-2">
-                      {item.first_diagnosis_date && (
-                        <span className="text-gray-500 font-semibold">최초 {item.first_diagnosis_date}</span>
-                      )}
-                      {item.first_diagnosis_date && (item.first_date || item.latest_date) && " · "}
-                      {item.first_date && item.latest_date && item.first_date !== item.latest_date
-                        ? `${item.first_date} ~ ${item.latest_date}`
-                        : (!item.first_diagnosis_date || item.first_date !== item.first_diagnosis_date)
-                          ? (item.first_date || item.latest_date)
-                          : ""}
-                      {item.hospitals?.length > 0 && ` · ${item.hospitals.join(", ")}`}
-                    </div>
-
-                    {/* 사유 */}
-                    {item.detail && (
-                      <div className="text-xs text-[#4F46E5] font-semibold bg-[#EEF2FF] rounded-lg px-3 py-2 mb-2">
-                        {item.detail}
-                      </div>
-                    )}
-
-                    {/* 배지 */}
-                    <div className="flex flex-wrap gap-1.5">
-                      {item.inpatient > 0 && (
-                        <span className="text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold bg-red-50 text-red-500">
-                          입원 {item.inpatient}일
-                        </span>
-                      )}
-                      {item.inpatient_count > 0 && (
-                        <span className="text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold bg-red-50 text-red-400">
-                          입원 {item.inpatient_count}회
-                        </span>
-                      )}
-                      {item.surgeries?.length > 0 && (
-                        <span className="text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold bg-orange-50 text-orange-500">
-                          수술: {item.surgeries.join(", ")}
-                        </span>
-                      )}
-                      {item.med_days > 0 && (
-                        <span className="text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold bg-emerald-50 text-emerald-600">
-                          투약 {item.med_days}일
-                        </span>
-                      )}
-                      {item.visit > 0 && (
-                        <span className="text-[0.7rem] px-2.5 py-1 rounded-lg font-semibold bg-gray-100 text-gray-500">
-                          통원 {item.visit}회
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </CollapsibleSection>
-            );
-          })}
-
-          {/* 고지 항목 없음 */}
-          {Object.keys(result.summary_reports).length === 0 && (
-            <div className="bg-emerald-50 rounded-2xl p-6 text-center shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-              <span className="text-3xl">✅</span>
-              <p className="text-sm font-bold text-emerald-700 mt-2">고지 대상 항목이 없습니다</p>
-            </div>
-          )}
-
-        </div>
+        <ResultView
+          result={result}
+          copied={copied}
+          kakaoOpen={kakaoOpen}
+          setKakaoOpen={setKakaoOpen}
+          handleCopy={handleCopy}
+        />
       )}
 
       {/* 빈 상태 */}
