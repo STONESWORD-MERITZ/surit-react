@@ -106,14 +106,15 @@ def normalize_code(raw: str | None) -> str:
     # 단, B20(에이즈), A09(감염) 등 실제 코드는 유지
     if len(code) >= 3 and code[0] in ("A", "B") and code[1].isalpha():
         code = code[1:]
-    # 이제 코드는 [영문대분류][숫자...] 형태여야 함 (예: O339, I639, E115)
-    # 대분류 알파벳 뒤 선행 0 제거 (O0339 → O339)
+    # 이제 코드는 [영문대분류][숫자...] 형태 (예: K0530, T140, I639)
+    # ★ KCD-7 정규화: alpha + 2~5자리 숫자.
+    #    K05.30 의 가운데 0 처럼 의미 있는 0은 보존해야 하므로 선행 0을 제거하지 않는다.
+    #    OCR 오류로 000이 붙은 경우에만 앞 0을 하나씩 제거한다.
     if len(code) >= 2 and code[0].isalpha() and len(code) > 1:
         alpha = code[0]
         digits = code[1:]
-        digits = digits.lstrip("0") or "0"
-        # 상병코드는 대분류 + 2~4자리 숫자 (예: O339, I6390)
-        # 원래 코드가 3자리 이상이어야 유효
+        while digits.startswith("000"):
+            digits = digits[1:]
         if len(digits) >= 2:
             code = alpha + digits
     # OCR "1" → "I" 보정 (숫자로 시작하면 I로 교정)
@@ -148,13 +149,14 @@ def detect_file_type(headers):
     h_joined = " ".join(str(h) for h in headers)
     h_norm = h_joined.replace(" ", "").replace("\n", "")
 
-    # 1차: 키워드 사전 (keywords.json 외부화)
-    if any(k in h_joined or k in h_norm for k in _FTYPE_KW["basic"]):
-        return "basic"
-    if any(k in h_joined or k in h_norm for k in _FTYPE_KW["detail"]):
-        return "detail"
+    # 1차: 키워드 사전 — 식별성 높은 순(pharma→detail→basic)으로 매칭
+    # basic 키워드("진료시작일" 등)는 다른 파일 헤더에도 공통으로 존재하므로 마지막에 확인
     if any(k in h_joined or k in h_norm for k in _FTYPE_KW["pharma"]):
         return "pharma"
+    if any(k in h_joined or k in h_norm for k in _FTYPE_KW["detail"]):
+        return "detail"
+    if any(k in h_joined or k in h_norm for k in _FTYPE_KW["basic"]):
+        return "basic"
 
     # 2차: 행 데이터 패턴 기반 추론 (컬럼 수, 날짜/코드 패턴)
     n_cols = len(headers)
@@ -912,37 +914,29 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         # 기본진료내역에서 '진단과: 일반의'는 약국 처방성 데이터로 간주 → 전체 분석에서 제외
         if ftype in ("basic", "unknown") and dept.replace(" ", "") == "일반의":
             continue
-        # 주상병 우선 추출 (기본진료/세부진료)
+        # 상병코드 추출 — "주상병" 단독 키는 "주상병코드" 컬럼과 부분일치하므로 절대 사용 금지
         if ftype == "pharma":
             raw_code = ""
         else:
-            # 1순위: '주상병코드' / '주상병기호' 등 주상병 명시 컬럼
-            raw_code = get_val(row, ["주상병코드", "주상병기호", "주상병"])
-            # 2순위: 일반 상병코드 (양식에 주/부 구분이 없는 경우)
+            # 1순위: 주상병 명시 컬럼
+            raw_code = get_val(row, ["주상병코드", "주상병기호"])
+            # 2순위: 일반 상병코드
             if not raw_code:
                 raw_code = get_val(row, ["상병코드", "진단코드"])
-            # 3순위: "코드" 단일 컬럼 (가장 광범위)
+            # 3순위: 단일 "코드" 컬럼 (가장 광범위 — 마지막 시도)
             if not raw_code:
                 raw_code = get_val(row, ["코드"])
         code_str = normalize_code(raw_code)
 
-        # ftype별 이름 조회 분리:
-        # - basic/unknown: 주상병명 우선 → 부상병명·행위명으로 오인 방지
-        # - detail: 행위명칭(처치행위명) 사용
-        # - pharma: 약품명 사용
+        # 상병명/행위명 추출
+        # "주상병" 단독 키는 "주상병코드" 컬럼 값이 들어오므로 반드시 제외
         if ftype == "detail":
             name_str = get_val(row, ["행위명칭", "행위명", "진료내역", "처치및수술", "처치및수 술"])
         elif ftype == "pharma":
             name_str = get_val(row, ["약품명", "의약품명"])
         else:  # basic, unknown, nhis
-            # 1순위: 주상병명 명시 컬럼
-            name_str = get_val(row, ["주상병명", "주상병"])
-            # 2순위: 일반 상병명
-            if not name_str:
-                name_str = get_val(row, ["상병명", "상병기호"])
-            # 3순위: 행위명 fallback (주상병 컬럼 없는 양식)
-            if not name_str:
-                name_str = get_val(row, ["진료내역", "행위명", "처치및수술"])
+            name_str = get_val(row, ["주상병명", "상병명", "약품명", "진료내역",
+                                     "행위명칭", "행위명", "처치및수술", "처치및수 술"])
 
         in_out   = get_val(row, ["입내원구분", "입원외래구분", "입원", "외래", "구분"])
         hospital = get_val(row, ["병·의원", "기관명", "요양기관명"])

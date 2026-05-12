@@ -65,12 +65,12 @@ def test_normalize_code_prefix_strip():
 
 
 def test_normalize_code_ocr_prefix_alpha():
-    # A/B 구분자 제거 + 점 제거 + 선행0 제거 → 동일 코드
-    assert normalize_code("AO0339") == "O339"
-    assert normalize_code("AO339") == "O339"
-    assert normalize_code("O33.9") == "O339"
-    assert normalize_code("AI639") == "I639"
-    assert normalize_code("I63.9") == "I639"
+    # A/B 구분자 제거 + 점 제거 (선행 0은 의미있으므로 보존)
+    assert normalize_code("AO0339") == "O0339"  # O0339: 의미있는 0 보존
+    assert normalize_code("AO339")  == "O339"
+    assert normalize_code("O33.9")  == "O339"
+    assert normalize_code("AI639")  == "I639"
+    assert normalize_code("I63.9")  == "I639"
 
 
 def test_normalize_code_ocr_1_to_I():
@@ -177,8 +177,8 @@ def test_snapshot_surgery_detection():
 
 def test_normalize_code_keeps_kcd_only():
     """normalize_code는 KCD 보정만 수행 — 비-KCD 문자열을 강제 차단하지 않음 (filters 담당)"""
-    # 정상 KCD 코드 (점 제거 + 선행 0 정규화)
-    assert normalize_code("K05.30") == "K530"   # 선행 0 제거: 0530 → 530
+    # 정상 KCD 코드 (점 제거, 0 보존)
+    assert normalize_code("K05.30") == "K0530"  # 의미있는 0 보존
     assert normalize_code("I63") == "I63"
     assert normalize_code("K21") == "K21"
     # 소문자 → 대문자 보정 + 점 제거
@@ -186,6 +186,33 @@ def test_normalize_code_keeps_kcd_only():
     # 빈 문자열 / None
     assert normalize_code("") == ""
     assert normalize_code(None) == ""
+
+
+def test_normalize_code_preserves_kcd_zeros():
+    """KCD-7 선행 0 보존 — 의미있는 0이 깎이면 안 됨"""
+    assert normalize_code("AK0530") == "K0530"   # 만성 단순치주염
+    assert normalize_code("K05.30") == "K0530"
+    assert normalize_code("AO0339") == "O0339"   # 의미있는 0 보존
+    assert normalize_code("AT140")  == "T140"
+    assert normalize_code("AM1997") == "M1997"
+    assert normalize_code("BM5436") == "M5436"
+
+
+def test_detect_file_type_actual_headers():
+    """권미연 PDF 실제 헤더로 파일 유형 판별 검증"""
+    # 기본진료
+    h_basic = ("순번", "진료시작일", "병·의원&약국", "진단과", "입원/외래",
+               "주상병코드", "주상병명", "내원일수", "총진료비",
+               "건강보험등", "내가낸의료비")
+    # 세부진료
+    h_detail = ("순번", "진료시작일", "병·의원&약국", "진료내역", "코드명",
+                "1회투약량", "1일투여횟수", "총투약일수")
+    # 처방조제
+    h_pharma = ("순번", "진료시작일", "병·의원&약국", "처방/조제", "약품명",
+                "성분명", "1회투약량", "1일투여횟수", "총투약일수")
+    assert detect_file_type(h_basic)  == "basic"
+    assert detect_file_type(h_detail) == "detail"
+    assert detect_file_type(h_pharma) == "pharma"
 
 
 if __name__ == "__main__":
