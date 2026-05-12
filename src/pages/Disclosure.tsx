@@ -29,6 +29,10 @@ type SummaryItem = {
   surgery_suspected?: string[];
   surgery_suspected_dates?: string[];
   additional_tests?: string[];
+  additional_test_hit?: boolean;
+  additional_test_reason?: string;
+  treatment_ongoing?: boolean | null;
+  treatment_ongoing_reason?: string;
   hospitals: string[];
   detail: string;
 };
@@ -99,9 +103,16 @@ function buildDiseaseList(reports: Record<string, SummaryItem[]>): DiseaseEntry[
         const sc = item.surgery_count ?? item.surgeries?.length ?? 0;
         e.item.surgery_count   = Math.max(e.item.surgery_count ?? 0, sc);
         e.item.surgeries         = [...new Set([...(e.item.surgeries ?? []), ...(item.surgeries ?? [])])];
-        e.item.procedures        = [...new Set([...(e.item.procedures ?? []), ...(item.procedures ?? [])])];
-        e.item.surgery_suspected = [...new Set([...(e.item.surgery_suspected ?? []), ...(item.surgery_suspected ?? [])])];
-        e.item.additional_tests  = [...new Set([...(e.item.additional_tests ?? []), ...(item.additional_tests ?? [])])];
+        e.item.procedures             = [...new Set([...(e.item.procedures ?? []), ...(item.procedures ?? [])])];
+        e.item.surgery_suspected      = [...new Set([...(e.item.surgery_suspected ?? []), ...(item.surgery_suspected ?? [])])];
+        e.item.additional_tests       = [...new Set([...(e.item.additional_tests ?? []), ...(item.additional_tests ?? [])])];
+        // 추가검사: 어느 쪽이든 true면 true
+        if (item.additional_test_hit) e.item.additional_test_hit = true;
+        if (item.additional_test_reason) e.item.additional_test_reason = item.additional_test_reason;
+        // 치료 종결: true(진행중) 우선
+        if (item.treatment_ongoing === true) e.item.treatment_ongoing = true;
+        else if (e.item.treatment_ongoing == null) e.item.treatment_ongoing = item.treatment_ongoing;
+        if (item.treatment_ongoing_reason) e.item.treatment_ongoing_reason = item.treatment_ongoing_reason;
       }
     }
   }
@@ -308,12 +319,41 @@ function ResultView({
                         투약 {item.med_days}일
                       </span>
                     )}
+                    {item.additional_test_hit && (
+                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-indigo-100 text-indigo-600">
+                        재검사
+                      </span>
+                    )}
+                    {item.treatment_ongoing === true && (
+                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-rose-100 text-rose-600">
+                        치료 중
+                      </span>
+                    )}
+                    {item.treatment_ongoing === false && (
+                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-emerald-100 text-emerald-700">
+                        종결
+                      </span>
+                    )}
                   </div>
 
-                  {/* 수술 의심 시술명 (설계사 확인 유도) */}
-                  {suspN > 0 && (
-                    <div className="mt-2 text-xs text-gray-400 leading-relaxed">
-                      의심 행위: {item.surgery_suspected!.slice(0, 3).join(", ")}
+                  {/* 수술 의심 행위명 + 의학 판단 결과 */}
+                  {(suspN > 0 || item.additional_test_hit || item.treatment_ongoing != null) && (
+                    <div className="mt-2 space-y-1">
+                      {suspN > 0 && (
+                        <p className="text-xs text-gray-400 leading-relaxed">
+                          의심 행위: {item.surgery_suspected!.slice(0, 3).join(", ")}
+                        </p>
+                      )}
+                      {item.additional_test_hit && item.additional_test_reason && (
+                        <p className="text-xs text-indigo-500 leading-relaxed">
+                          재검사: {item.additional_test_reason}
+                        </p>
+                      )}
+                      {item.treatment_ongoing != null && (
+                        <p className={`text-xs leading-relaxed ${item.treatment_ongoing ? "text-rose-500" : "text-emerald-600"}`}>
+                          {item.treatment_ongoing ? "치료 중" : "종결"}: {item.treatment_ongoing_reason}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

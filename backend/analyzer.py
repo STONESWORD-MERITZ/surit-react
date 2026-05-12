@@ -40,6 +40,31 @@ PROCEDURE_KEYWORDS         = _KW["procedure_keywords"]
 SURGERY_COST_THRESHOLD   = 500_000  # 수술 확정 기준 (50만원 이상 + 수술키워드)
 PROCEDURE_COST_THRESHOLD = 300_000  # 시술 확정 기준 (30만원 이상 + 시술키워드)
 
+# ── 의학 판단 전용 시스템 프롬프트 ─────────────────────────────
+MEDICAL_JUDGMENT_SYSTEM_PROMPT = """당신은 한국 보험 언더라이팅 전문 의사입니다.
+설계사가 고객의 알릴의무를 판단할 수 있도록 의학적 관점에서 분석합니다.
+
+판단할 항목:
+1. 추가검사/재검사 여부 (1년 이내 알릴의무 Q2)
+2. 치료 종결 여부 (3개월 이내 알릴의무 Q1)
+
+반드시 JSON 형식으로만 응답하세요.
+
+[판단 1: 추가검사/재검사 여부]
+판단 기준:
+- 정기검사, 추적관찰, 건강검진, 모니터링, 단순 스케일링 → false
+- 이상소견 후 정밀검사, 재검사, 추가 진단 목적 검사 → true
+핵심: 질병코드와 검사 내용의 의학적 연관성 + 정기성 vs 재검사 구분
+예) 치주염 정기 스케일링 = false / 종양 의심 후 조직검사 = true
+
+[판단 2: 치료 종결 여부]
+판단 기준:
+- 일회성 감기, 단순 외상, 종결된 시술 → false (종결됨)
+- 만성질환, 재발 가능성, 지속 투약 중 → true (진행 중)
+- 수술 후 회복기, 처방약 복약 중 → true (진행 중)
+- 처방 종료 후 추가 처방 없음 → false (종결됨)
+핵심: 질병코드의 만성/급성 구분 + 마지막 처방 종료일 + 재방문 가능성"""
+
 # ==========================================
 # 헬퍼 함수
 # ==========================================
@@ -612,6 +637,94 @@ def _merge_ai_results(parts: list[dict]) -> dict:
 
     merged["total_flagged"] = len(merged["flagged_items"])
     return merged
+
+
+async def _call_medical_judgment(
+    type1_items: list[dict],
+    type2_items: list[dict],
+    api_key: str,
+) -> dict:
+    """추가검사/재검사 + 치료 종결 여부를 단일 Gemini 배치 호출로 판단.
+
+    Returns:
+        {
+            "additional_tests": {"disease_code": {is_additional_test, test_type, reason}},
+            "treatment_ongoing": {"disease_code": {is_ongoing, reason}},
+        }
+    """
+    if not type1_items and not type2_items:
+        return {"additional_tests": {}, "treatment_ongoing": {}}
+
+    parts = []
+    if type1_items:
+        parts.append(
+            "[추가검사/재검사 판단 목록]\n"
+            + json.dumps(type1_items, ensure_ascii=False, indent=2)
+        )
+    if type2_items:
+        parts.append(
+            "[치료 종결 여부 판단 목록]\n"
+            + json.dumps(type2_items, ensure_ascii=False, indent=2)
+        )
+
+    contents = "\n\n".join(parts) + """
+
+반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트 없이 순수 JSON:
+{
+  "additional_tests": [
+    {"disease_code": "코드", "is_additional_test": true또는false, "test_type": "재검사 또는 정기검사", "reason": "판단 근거"}
+  ],
+  "treatment_ongoing": [
+    {"disease_code": "코드", "is_ongoing": true또는false, "reason": "판단 근거"}
+  ]
+}"""
+
+    try:
+        api_client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=120_000),
+        )
+    except TypeError:
+        api_client = genai.Client(api_key=api_key)
+
+    config = types.GenerateContentConfig(system_instruction=MEDICAL_JUDGMENT_SYSTEM_PROMPT)
+
+    def _sync_gen():
+        return api_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents,
+            config=config,
+        )
+
+    try:
+        if hasattr(api_client, "aio") and hasattr(api_client.aio.models, "generate_content"):
+            message = await api_client.aio.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=contents,
+                config=config,
+            )
+        else:
+            message = await asyncio.to_thread(_sync_gen)
+
+        raw = message.text if getattr(message, "text", None) else ""
+        if not raw.strip():
+            return {"additional_tests": {}, "treatment_ongoing": {}}
+
+        result = extract_json(raw)
+        at_out = {
+            item["disease_code"]: item
+            for item in result.get("additional_tests", [])
+            if isinstance(item, dict) and "disease_code" in item
+        }
+        to_out = {
+            item["disease_code"]: item
+            for item in result.get("treatment_ongoing", [])
+            if isinstance(item, dict) and "disease_code" in item
+        }
+        return {"additional_tests": at_out, "treatment_ongoing": to_out}
+    except Exception as e:
+        # 비치명적 오류 — 메인 분석은 계속 진행
+        return {"additional_tests": {}, "treatment_ongoing": {}, "_error": str(e)[:120]}
 
 
 async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_date, api_key: str) -> dict:
@@ -1787,7 +1900,56 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
 절대 규칙: 응답은 반드시 {{ 로 시작하고 }} 로 끝나는 순수 JSON만 출력하세요.
 설명, 주석, 마크다운 백틱, 전후 텍스트 일체 금지."""
 
-    # ── Gemini API 호출 (PDF별 병렬, Semaphore(5)) ────────────────
+    # ── 의학 판단 입력 준비 (추가검사/재검사 + 치료 종결) ────────────
+    _mj_type1: list[dict] = []   # 추가검사/재검사 판단 대상
+    _mj_type2: list[dict] = []   # 치료 종결 판단 대상
+    _seen_mj1: set[str] = set()
+    _seen_mj2: set[str] = set()
+
+    for _jck, _js in disease_stats.items():
+        _jdc = (_js.get("diag_code") or _jck).strip()
+        if not _jdc or _jdc in ("$", "해당없음"):
+            continue
+        _jname   = _js.get("name", "")
+        _jlatest = _js.get("latest_date", "")
+
+        # 판단 1: tests_found가 있으면 → 추가검사 여부 판단
+        if _js.get("tests_found") and _jdc not in _seen_mj1:
+            _seen_mj1.add(_jdc)
+            _mj_type1.append({
+                "disease_code": _jdc,
+                "disease_name": _jname,
+                "date":         _jlatest,
+                "treatments":   [t[:40] for t in list(_js["tests_found"])[:10]],
+            })
+
+        # 판단 2: 마지막 진료일이 3개월 이내
+        _jdt = _parse_ymd(_jlatest)
+        if _jdt and _jdt >= _d3m_dt and _jdc not in _seen_mj2:
+            _seen_mj2.add(_jdc)
+            _all_procs: set[str] = set()
+            for _df_val in _js.get("_daily_facts", {}).values():
+                _all_procs.update(_df_val.get("detail_proc_names", set()))
+            _treatments = list(
+                (_all_procs | _js.get("tests_found", set()) | _js.get("surgeries", set()))
+            )[:15]
+            _presc_list: list[dict] = []
+            for _pd, _pdays in sorted(_js.get("med_dates_pharma", {}).items(), reverse=True)[:5]:
+                _pdt2 = _parse_ymd(_pd)
+                if _pdt2 and _pdt2 >= _d3m_dt and _pdays > 0:
+                    _presc_list.append({"date": _pd, "days": _pdays})
+            _recent_drugs = [d[:30] for d in list(_js.get("drug_names_in_90", set()))[:5]]
+            _mj_type2.append({
+                "disease_code":  _jdc,
+                "disease_name":  _jname,
+                "last_date":     _jlatest,
+                "today":         today_str,
+                "treatments":    [t[:40] for t in _treatments],
+                "prescriptions": _presc_list,
+                "recent_drugs":  _recent_drugs,
+            })
+
+    # ── Gemini API 호출 (PDF별 병렬 + 의학 판단 병렬) ────────────
     gemini_payloads = []
     for uf in active_files:
         fn = getattr(uf, "name", None) or getattr(uf, "filename", None) or "unknown.pdf"
@@ -1813,10 +1975,22 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
         async with sem:
             return await analyze_single_pdf(pd, product_type, reference_date, api_key)
 
-    gemini_out = await asyncio.gather(
+    # 의학 판단 + 메인 Gemini 병렬 실행
+    _all_api_results = await asyncio.gather(
+        _call_medical_judgment(_mj_type1, _mj_type2, api_key),
         *[_guarded_gemini(pd) for pd in gemini_payloads],
         return_exceptions=True,
     )
+    _med_result_raw = _all_api_results[0]
+    gemini_out      = list(_all_api_results[1:])
+
+    _med_result: dict = (
+        _med_result_raw
+        if isinstance(_med_result_raw, dict)
+        else {"additional_tests": {}, "treatment_ongoing": {}}
+    )
+    if "_error" in _med_result:
+        retry_warnings.append(f"⚠️ 의학 판단 API 오류 (비치명적): {_med_result['_error']}")
 
     ai_successes: list[dict] = []
     for i, go in enumerate(gemini_out):
@@ -1834,6 +2008,16 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
         raise AnalysisError("모든 PDF에 대한 AI 분석에 실패했습니다.")
 
     ai_result = _merge_ai_results(ai_successes)
+
+    # 의학 판단 결과 → disease_stats에 반영
+    _at_results = _med_result.get("additional_tests", {})
+    _to_results = _med_result.get("treatment_ongoing", {})
+    for _jck, _js in disease_stats.items():
+        _jdc = (_js.get("diag_code") or _jck).strip()
+        if _jdc in _at_results:
+            _js["_additional_test_result"] = _at_results[_jdc]
+        if _jdc in _to_results:
+            _js["_treatment_ongoing_result"] = _to_results[_jdc]
 
     # 프롬프트/API 관련 대형 문자열 해제
     del system_prompt
@@ -1985,7 +2169,29 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
         _proc_dates      = sorted(_ds.get("procedure_dates", set()) or []) if _ds else []
         _surg_susp       = list(_ds.get("surgery_suspected_names", set()) or []) if _ds else []
         _surg_susp_dates = sorted(_ds.get("surgery_suspected_dates", set()) or []) if _ds else []
-        _tests           = [t[:50] for t in list(_ds.get("tests_found", set()) or [])[:8]] if _ds else []
+
+        # 의학 판단 결과 반영
+        _at_res = _ds.get("_additional_test_result") if _ds else None
+        _to_res = _ds.get("_treatment_ongoing_result") if _ds else None
+
+        # additional_tests: AI가 '재검사'로 확정한 경우만 포함, 아니면 raw test names
+        if _at_res is not None:
+            _add_test_hit    = bool(_at_res.get("is_additional_test"))
+            _add_test_reason = _at_res.get("reason", "")
+            _additional_tests = [_at_res.get("test_type", "재검사")] if _add_test_hit else []
+        else:
+            _add_test_hit    = False
+            _add_test_reason = ""
+            _additional_tests = [t[:50] for t in list(_ds.get("tests_found", set()) or [])[:8]] if _ds else []
+
+        # treatment_ongoing: None이면 미판단
+        if _to_res is not None:
+            _tx_ongoing        = bool(_to_res.get("is_ongoing"))
+            _tx_ongoing_reason = _to_res.get("reason", "")
+        else:
+            _tx_ongoing        = None
+            _tx_ongoing_reason = ""
+
         summary_reports[q_title].append({
             "first_date":              first_date,
             "latest_date":             latest_date,
@@ -2008,7 +2214,11 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
             "procedure_dates":         _proc_dates,
             "surgery_suspected":       _surg_susp,
             "surgery_suspected_dates": _surg_susp_dates,
-            "additional_tests":        _tests,
+            "additional_tests":        _additional_tests,
+            "additional_test_hit":     _add_test_hit,
+            "additional_test_reason":  _add_test_reason,
+            "treatment_ongoing":       _tx_ongoing,
+            "treatment_ongoing_reason": _tx_ongoing_reason,
             "drug_change_in_3m":       _ds.get("drug_change_in_3m", False) if _ds else False,
             "hospitals":               m["hospitals"],
             "detail":                  m["reason"],
