@@ -4,6 +4,11 @@ import re
 import time
 from datetime import date
 
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
+
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -179,9 +184,6 @@ async def analyze(
     if not api_key:
         raise HTTPException(status_code=500, detail="서버에 GOOGLE_API_KEY가 설정되지 않았습니다.")
 
-    t_start = time.time()
-    print(f"[analyze] 시작 — files={len(files)}, product={product_type}, ref={reference_date}")
-
     async def _read(f):
         data = await f.read()
         return _PDFFile(name=f.filename or "unknown.pdf", data=data)
@@ -200,9 +202,6 @@ async def analyze(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"분석 중 오류: {e}")
-
-    elapsed = time.time() - t_start
-    print(f"[analyze] 완료 — {elapsed:.1f}초 소요")
 
     summary_reports = result["summary_reports"]
     flagged_codes = result["flagged_codes"]
