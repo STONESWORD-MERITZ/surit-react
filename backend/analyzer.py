@@ -1102,7 +1102,8 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
 
         if hospital and "약국" not in hospital and ftype != "pharma":
             s["hospitals"].add(hospital)
-        if name_str and not s["name"]:
+        # 질병명은 기본진료/nhis 에서만 설정 — 세부진료 행위명·약품명으로 덮지 않음
+        if name_str and not s["name"] and ftype not in ("detail", "pharma"):
             s["name"] = name_str
 
     # ── 기본진료+세부진료 동일일자 교차 수술/시술 판정 ──────────────

@@ -49,6 +49,7 @@ type AnalyzeResult = {
   verdict: string;
   verdict_reason: string;
   recommend: string;
+  meritz_easy_message: string;
 };
 
 // ── 위험도 판정 ──────────────────────────────────────────────
@@ -73,63 +74,6 @@ const RISK: Record<Risk, { border: string; label: string; pill: string }> = {
   green:  { border: "border-emerald-400", label: "text-emerald-600", pill: "bg-emerald-100 text-emerald-700" },
 };
 
-// ── 질환 중복 통합 (동일 코드 → 배지 합산) ──────────────────
-type DiseaseEntry = { item: SummaryItem; badges: string[] };
-
-function buildDiseaseList(reports: Record<string, SummaryItem[]>): DiseaseEntry[] {
-  const map = new Map<string, DiseaseEntry>();
-  const order: string[] = [];
-
-  const sorted = Object.entries(reports).sort(([a], [b]) => {
-    const na = parseInt(a.match(/\d+/)?.[0] ?? "999", 10);
-    const nb = parseInt(b.match(/\d+/)?.[0] ?? "999", 10);
-    return na - nb;
-  });
-
-  for (const [qTitle, items] of sorted) {
-    const badge = qTitle.match(/Q\d+|간편\d+번/)?.[0] ?? "Q";
-    for (const item of items) {
-      const key = item.code || item.name || "unknown";
-      if (!map.has(key)) {
-        order.push(key);
-        map.set(key, { item: { ...item }, badges: [badge] });
-      } else {
-        const e = map.get(key)!;
-        if (!e.badges.includes(badge)) e.badges.push(badge);
-        e.item.inpatient       = Math.max(e.item.inpatient, item.inpatient);
-        e.item.inpatient_count = Math.max(e.item.inpatient_count, item.inpatient_count);
-        e.item.visit           = Math.max(e.item.visit, item.visit);
-        e.item.med_days        = Math.max(e.item.med_days, item.med_days);
-        const sc = item.surgery_count ?? item.surgeries?.length ?? 0;
-        e.item.surgery_count   = Math.max(e.item.surgery_count ?? 0, sc);
-        e.item.surgeries         = [...new Set([...(e.item.surgeries ?? []), ...(item.surgeries ?? [])])];
-        e.item.procedures             = [...new Set([...(e.item.procedures ?? []), ...(item.procedures ?? [])])];
-        e.item.surgery_suspected      = [...new Set([...(e.item.surgery_suspected ?? []), ...(item.surgery_suspected ?? [])])];
-        e.item.additional_tests       = [...new Set([...(e.item.additional_tests ?? []), ...(item.additional_tests ?? [])])];
-        // 추가검사: 어느 쪽이든 true면 true
-        if (item.additional_test_hit) e.item.additional_test_hit = true;
-        if (item.additional_test_reason) e.item.additional_test_reason = item.additional_test_reason;
-        // 치료 종결: true(진행중) 우선
-        if (item.treatment_ongoing === true) e.item.treatment_ongoing = true;
-        else if (e.item.treatment_ongoing == null) e.item.treatment_ongoing = item.treatment_ongoing;
-        if (item.treatment_ongoing_reason) e.item.treatment_ongoing_reason = item.treatment_ongoing_reason;
-      }
-    }
-  }
-
-  return order.map(k => map.get(k)!);
-}
-
-// ── 추천 심사 라벨 ──────────────────────────────────────────
-function recLabel(verdict: string, recommend: string): { text: string; risk: Risk } {
-  const v = (verdict ?? "").toLowerCase();
-  const r = (recommend ?? "").toLowerCase();
-  if (v.includes("불가") || r.includes("불가") || r.includes("거절"))
-    return { text: "거절 위험", risk: "red" };
-  if (v.includes("조건부") || r.includes("간편") || r.includes("전환"))
-    return { text: "간편 전환", risk: "yellow" };
-  return { text: "건강체 가능", risk: "green" };
-}
 
 // ── 결과 뷰 ─────────────────────────────────────────────────
 function ResultView({
@@ -142,8 +86,6 @@ function ResultView({
   setKakaoOpen: (v: boolean) => void;
   handleCopy: () => void;
 }) {
-  const diseases = buildDiseaseList(result.summary_reports);
-  const rec = recLabel(result.verdict, result.recommend);
 
   return (
     <div>
@@ -193,33 +135,30 @@ function ResultView({
           </div>
         </div>
 
-        {/* 해당 문항 수 */}
+        {/* 해당 질문 수 */}
         <div className="bg-white rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-          <div className="text-xs text-gray-400 font-semibold mb-1">해당 문항 수</div>
+          <div className="text-xs text-gray-400 font-semibold mb-1">해당 질문 수</div>
           <div className={`text-3xl font-bold font-mono leading-none ${result.total_q_count > 2 ? "text-amber-500" : "text-gray-900"}`}>
             {result.total_q_count}
             <span className="text-sm font-semibold ml-1 text-gray-500">개</span>
           </div>
         </div>
 
-        {/* 총 진료일 */}
+        {/* 총 통원 횟수 */}
         <div className="bg-white rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-          <div className="text-xs text-gray-400 font-semibold mb-1">총 진료일</div>
+          <div className="text-xs text-gray-400 font-semibold mb-1">총 통원 횟수</div>
           <div className="text-3xl font-bold font-mono leading-none text-gray-900">
             {result.total_visit_sum}
-            <span className="text-sm font-semibold ml-1 text-gray-500">일</span>
+            <span className="text-sm font-semibold ml-1 text-gray-500">회</span>
           </div>
         </div>
 
-        {/* 추천 심사 */}
-        <div className={`rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.06)] ${
-          rec.risk === "red" ? "bg-red-50" : rec.risk === "yellow" ? "bg-amber-50" : "bg-emerald-50"
-        }`}>
-          <div className="text-xs text-gray-400 font-semibold mb-1">추천 심사</div>
-          <div className={`text-lg font-extrabold leading-tight ${
-            rec.risk === "red" ? "text-red-600" : rec.risk === "yellow" ? "text-amber-600" : "text-emerald-600"
-          }`}>
-            {rec.text}
+        {/* 총 투약일수 */}
+        <div className="bg-white rounded-2xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+          <div className="text-xs text-gray-400 font-semibold mb-1">총 투약일수</div>
+          <div className="text-3xl font-bold font-mono leading-none text-gray-900">
+            {result.total_med_sum}
+            <span className="text-sm font-semibold ml-1 text-gray-500">일</span>
           </div>
         </div>
       </div>
@@ -233,160 +172,149 @@ function ResultView({
           </div>
         ))}
 
-      {/* 질환별 카드 */}
-      {diseases.length > 0 ? (
-        <div className="space-y-3">
-          {diseases.map(({ item, badges }, idx) => {
-            const risk   = riskOf(item);
-            const s      = RISK[risk];
-            const surgN  = item.surgery_count ?? item.surgeries?.length ?? 0;
-            const procN  = item.procedures?.length ?? 0;
-            const suspN  = item.surgery_suspected?.length ?? 0;
-            const period =
-              item.first_date && item.latest_date && item.first_date !== item.latest_date
-                ? `${item.first_date} ~ ${item.latest_date}`
-                : item.first_date || item.latest_date || "";
+      {/* 메리츠 간편 예외질환 경고 */}
+      {result.meritz_easy_message && (
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 text-xs text-orange-800 whitespace-pre-wrap leading-relaxed">
+          {result.meritz_easy_message}
+        </div>
+      )}
+
+      {/* 질환 섹션별 카드 */}
+      {Object.keys(result.summary_reports).length > 0 ? (
+        <div className="space-y-4">
+          {Object.entries(result.summary_reports).map(([qTitle, items]) => {
+            // "[간편1번질문] 3개월 이내..." → badge: "간편1번", title: "3개월 이내..."
+            const badgeMatch = qTitle.match(/\[(.*?)번질문\]/);
+            const badge      = badgeMatch ? badgeMatch[1] + "번" : (qTitle.match(/Q\d+/)?.[0] ?? "Q");
+            const sectionTitle = qTitle.replace(/^\[.*?\]\s*/, "");
 
             return (
-              <div
-                key={idx}
-                className={`bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] border-l-4 ${s.border}`}
-              >
-                <div className="px-5 py-4">
-                  {/* 질병명 + 코드 + 문항 배지 */}
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2 flex-wrap min-w-0">
-                      <span className="text-[15px] font-bold text-gray-900 truncate">
-                        {item.name || "질병명 없음"}
-                      </span>
-                      {item.code && (
-                        <span className="font-mono text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded shrink-0">
-                          {item.code}
-                        </span>
-                      )}
-                    </div>
-                    {/* 문항 배지 */}
-                    <div className="flex gap-1 shrink-0">
-                      {badges.map(b => (
-                        <span
-                          key={b}
-                          className="text-[11px] font-bold bg-[#4F46E5] text-white px-2 py-0.5 rounded-md"
-                        >
-                          {b}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
+              <div key={qTitle} className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] overflow-hidden">
+                {/* 섹션 헤더 */}
+                <div className="px-5 py-3.5 flex items-center gap-2.5 border-b border-gray-100">
+                  <span className="text-xs font-bold bg-[#4F46E5] text-white px-2.5 py-1 rounded-md shrink-0">
+                    {badge}
+                  </span>
+                  <span className="text-sm font-bold text-gray-800">{sectionTitle}</span>
+                </div>
 
-                  {/* 진료기간 */}
-                  {period && (
-                    <div className="text-xs text-gray-400 mb-1">
-                      <span className="text-gray-300 mr-1">진료기간</span>
-                      {period}
-                    </div>
-                  )}
-                  {/* 최초진단일 — period 시작일과 다를 때만 별도 표시 */}
-                  {item.first_diagnosis_date &&
-                   item.first_diagnosis_date !== item.first_date && (
-                    <div className="text-xs text-gray-400 mb-3">
-                      <span className="text-gray-300 mr-1">최초 진단</span>
-                      {item.first_diagnosis_date}
-                    </div>
-                  )}
-                  {!period && item.first_diagnosis_date && (
-                    <div className="text-xs text-gray-400 mb-3">
-                      <span className="text-gray-300 mr-1">최초 진단</span>
-                      {item.first_diagnosis_date}
-                    </div>
-                  )}
-                  {/* period 있고 최초진단일도 같으면 mb-3 간격 보정 */}
-                  {period && item.first_diagnosis_date === item.first_date && (
-                    <div className="mb-3" />
-                  )}
+                {/* 질환 카드 목록 */}
+                <div className="divide-y divide-gray-50">
+                  {items.map((item, idx) => {
+                    const risk  = riskOf(item);
+                    const sc    = RISK[risk];
+                    const surgN = item.surgery_count ?? item.surgeries?.length ?? 0;
+                    const procN = item.procedures?.length ?? 0;
+                    const suspN = item.surgery_suspected?.length ?? 0;
+                    const hosp  = (item.hospitals as string[])?.[0] ?? "";
 
-                  {/* 통계 pill */}
-                  <div className="flex flex-wrap gap-2">
-                    {/* 1) 통원횟수 */}
-                    {item.visit > 0 && (
-                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-gray-100 text-gray-600">
-                        통원 {item.visit}회
-                      </span>
-                    )}
-                    {/* 2) 입원일수 */}
-                    {item.inpatient > 0 && (
-                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-red-100 text-red-600">
-                        입원 {item.inpatient}일
-                      </span>
-                    )}
-                    {/* 3) 입원횟수 */}
-                    {item.inpatient_count > 0 && (
-                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-red-50 text-red-500 border border-red-200">
-                        입원 {item.inpatient_count}회
-                      </span>
-                    )}
-                    {/* 4) 수술여부 */}
-                    {surgN > 0 && (
-                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-red-100 text-red-600">
-                        수술 {surgN}건
-                      </span>
-                    )}
-                    {procN > 0 && (
-                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-orange-100 text-orange-600">
-                        시술 {procN}건
-                      </span>
-                    )}
-                    {suspN > 0 && (
-                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-gray-100 text-gray-500">
-                        ⚠️ 수술 의심 {suspN}건
-                      </span>
-                    )}
-                    {/* 5) 투약일 */}
-                    {item.med_days > 0 && (
-                      <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
-                        item.med_days >= 30
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-emerald-100 text-emerald-700"
-                      }`}>
-                        투약 {item.med_days}일
-                      </span>
-                    )}
-                    {item.additional_test_hit && (
-                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-indigo-100 text-indigo-600">
-                        재검사
-                      </span>
-                    )}
-                    {item.treatment_ongoing === true && (
-                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-rose-100 text-rose-600">
-                        치료 중
-                      </span>
-                    )}
-                    {item.treatment_ongoing === false && (
-                      <span className="text-xs px-3 py-1 rounded-full font-semibold bg-emerald-100 text-emerald-700">
-                        종결
-                      </span>
-                    )}
-                  </div>
+                    return (
+                      <div key={idx} className={`px-5 py-4 border-l-4 ${sc.border}`}>
+                        {/* 질병명 + 코드 */}
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[15px] font-bold text-gray-900">
+                            {item.name || "질병명 없음"}
+                          </span>
+                          {item.code && (
+                            <span className="font-mono text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded shrink-0">
+                              {item.code}
+                            </span>
+                          )}
+                        </div>
 
-                  {/* 수술 의심 행위명 + 의학 판단 결과 */}
-                  {(suspN > 0 || item.additional_test_hit || item.treatment_ongoing != null) && (
-                    <div className="mt-2 space-y-1">
-                      {suspN > 0 && (
-                        <p className="text-xs text-gray-400 leading-relaxed">
-                          의심 행위: {item.surgery_suspected!.slice(0, 3).join(", ")}
-                        </p>
-                      )}
-                      {item.additional_test_hit && item.additional_test_reason && (
-                        <p className="text-xs text-indigo-500 leading-relaxed">
-                          재검사: {item.additional_test_reason}
-                        </p>
-                      )}
-                      {item.treatment_ongoing != null && (
-                        <p className={`text-xs leading-relaxed ${item.treatment_ongoing ? "text-rose-500" : "text-emerald-600"}`}>
-                          {item.treatment_ongoing ? "치료 중" : "종결"}: {item.treatment_ongoing_reason}
-                        </p>
-                      )}
-                    </div>
-                  )}
+                        {/* 날짜 · 병원 */}
+                        <div className="text-xs text-gray-400 mb-2.5">
+                          {item.first_date}{hosp ? ` · ${hosp}` : ""}
+                        </div>
+
+                        {/* 고지 이유 박스 */}
+                        {item.detail && (
+                          <div className="bg-indigo-50 text-indigo-700 text-xs rounded-lg px-3 py-2 mb-3 leading-relaxed">
+                            {item.detail}
+                          </div>
+                        )}
+
+                        {/* 통계 칩 */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.visit > 0 && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-600">
+                              통원 {item.visit}회
+                            </span>
+                          )}
+                          {item.inpatient > 0 && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-red-100 text-red-600">
+                              입원 {item.inpatient}일
+                            </span>
+                          )}
+                          {item.inpatient_count > 0 && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-red-50 text-red-500 border border-red-200">
+                              입원 {item.inpatient_count}회
+                            </span>
+                          )}
+                          {surgN > 0 && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-red-100 text-red-600">
+                              수술 {surgN}건
+                            </span>
+                          )}
+                          {procN > 0 && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-orange-100 text-orange-600">
+                              시술 {procN}건
+                            </span>
+                          )}
+                          {suspN > 0 && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-500">
+                              ⚠️ 수술 의심 {suspN}건
+                            </span>
+                          )}
+                          {item.med_days > 0 && (
+                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold ${
+                              item.med_days >= 30
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-emerald-100 text-emerald-700"
+                            }`}>
+                              투약 {item.med_days}일
+                            </span>
+                          )}
+                          {item.additional_test_hit && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-indigo-100 text-indigo-600">
+                              재검사
+                            </span>
+                          )}
+                          {item.treatment_ongoing === true && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-100 text-rose-600">
+                              치료 중
+                            </span>
+                          )}
+                          {item.treatment_ongoing === false && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-700">
+                              종결
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 수술 의심 행위명 + 의학 판단 보조 텍스트 */}
+                        {(suspN > 0 || item.additional_test_hit || item.treatment_ongoing != null) && (
+                          <div className="mt-2 space-y-0.5">
+                            {suspN > 0 && (
+                              <p className="text-xs text-gray-400">
+                                의심 행위: {item.surgery_suspected!.slice(0, 3).join(", ")}
+                              </p>
+                            )}
+                            {item.additional_test_hit && item.additional_test_reason && (
+                              <p className="text-xs text-indigo-500">
+                                재검사: {item.additional_test_reason}
+                              </p>
+                            )}
+                            {item.treatment_ongoing != null && (
+                              <p className={`text-xs ${item.treatment_ongoing ? "text-rose-500" : "text-emerald-600"}`}>
+                                {item.treatment_ongoing ? "치료 중" : "종결"}: {item.treatment_ongoing_reason}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
