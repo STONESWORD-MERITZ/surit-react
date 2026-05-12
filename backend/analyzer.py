@@ -129,19 +129,16 @@ def detect_file_type(headers):
     return "unknown"
 
 
-# 파일명 기반 감지 (헤더 감지 실패 시 보조 사용)
-_FNAME_BASIC_KW  = ("기본진료",)
-_FNAME_DETAIL_KW = ("세부진료", "진료내역", "진료기록")
-_FNAME_PHARMA_KW = ("처방조제", "처방전", "조제내역")
-
-def _detect_ftype_by_fname(fname: str) -> str:
-    """파일명으로 basic/detail/pharma 판별. 확실하지 않으면 '' 반환."""
-    fn = fname.lower().replace(" ", "").replace("_", "")
-    if any(k in fn for k in _FNAME_BASIC_KW):
+def _detect_ftype_by_page_text(text: str) -> str:
+    """PDF 첫 페이지 상단 제목 텍스트로 basic/detail/pharma 판별.
+    확실하지 않으면 '' 반환."""
+    if not text:
+        return ""
+    if "기본진료정보" in text:
         return "basic"
-    if any(k in fn for k in _FNAME_DETAIL_KW):
+    if "세부진료정보" in text:
         return "detail"
-    if any(k in fn for k in _FNAME_PHARMA_KW):
+    if "처방조제" in text:
         return "pharma"
     return ""
 
@@ -439,6 +436,8 @@ def parse_single_pdf(uploaded_file, birthdate_pw) -> dict:
         with _open_pdf(pdf_data, birthdate_pw or "") as pdf:
             first_text = pdf.pages[0].extract_text() or "" if pdf.pages else ""
             is_nhis = "건강보험 요양급여내역" in first_text
+            # PDF 첫 페이지 상단 제목으로 파일 종류 판별 (헤더 감지 보조)
+            page_ftype = _detect_ftype_by_page_text(first_text)
 
             if is_nhis:
                 for page in pdf.pages:
@@ -459,9 +458,8 @@ def parse_single_pdf(uploaded_file, birthdate_pw) -> dict:
                             for i, h in enumerate(raw_headers)
                         ]
                         header_ftype = detect_file_type(tuple(headers))
-                        fname_ftype  = _detect_ftype_by_fname(fname)
-                        # 헤더 감지 성공 우선, unknown이면 파일명으로 보완
-                        ftype = header_ftype if header_ftype != "unknown" else (fname_ftype or "unknown")
+                        # 헤더 감지 성공 우선, unknown이면 페이지 제목 텍스트로 보완
+                        ftype = header_ftype if header_ftype != "unknown" else (page_ftype or "unknown")
                         for row in table[1:]:
                             if not any(row):
                                 continue
