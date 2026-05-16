@@ -118,7 +118,7 @@ def _serialize_reports(summary_reports: dict) -> dict:
 
     def _to_list(v):
         if isinstance(v, set):
-            return list(v)
+            return sorted(v)
         return v if v is not None else []
 
     out = {}

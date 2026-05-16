@@ -125,6 +125,36 @@ def normalize_code(raw: str | None) -> str:
     return code
 
 
+DISCLOSURE_CODE_GROUPS = {
+    "M54": {
+        "code": "M54",
+        "name": "등통증(경추 및 요추)",
+    },
+}
+
+
+def disclosure_group_code(code: str) -> str:
+    """Return the disclosure-level code used for grouping related KCD subcodes."""
+    c = normalize_code(code)
+    for prefix, group in DISCLOSURE_CODE_GROUPS.items():
+        if c.startswith(prefix):
+            return group["code"]
+    return c
+
+
+def disclosure_group_name(code: str, fallback: str = "") -> str:
+    c = normalize_code(code)
+    for prefix, group in DISCLOSURE_CODE_GROUPS.items():
+        if c.startswith(prefix):
+            return group["name"]
+    return fallback
+
+
+def _keep_basic_general_row(code: str) -> bool:
+    """Some HIRA pharmacy/basic rows carry the same KCD code and count in user-facing visit totals."""
+    return disclosure_group_code(code) in {"M54"}
+
+
 def parse_date(date_str: str) -> str:
     m = re.search(r"(\d{4})-(\d{2})-(\d{2})", date_str)
     if m:
@@ -433,6 +463,40 @@ def _make_merged_item(item: dict, q: str, code_override: str = "") -> dict:
     }
 
 
+def _merge_item_into(m: dict, item: dict) -> None:
+    if item.get("date"):
+        m["dates"].append(item.get("date", ""))
+    if item.get("reason") and item["reason"] not in m.get("reason", ""):
+        m["reason"] = (m.get("reason", "") + " / " + item["reason"]).strip(" /")
+    if item.get("is_surgery"):
+        m["is_surgery"] = True
+        if item.get("date"):
+            m["surgery_dates"].append(item.get("date", ""))
+        if item.get("surgery_name"):
+            m["surgery_name"] = item.get("surgery_name")
+    m["inpatient_days"] = max(m["inpatient_days"], item.get("inpatient_days", 0))
+    m["inpatient_count"] = max(m["inpatient_count"], item.get("inpatient_count", 0))
+    m["visit_count"] = max(m["visit_count"], item.get("visit_count", 0))
+    if item.get("first_diagnosis_date") and item["first_diagnosis_date"] < m.get("first_diagnosis_date", "2099-12-31"):
+        m["first_diagnosis_date"] = item["first_diagnosis_date"]
+    m["med_days"] = max(m["med_days"], item.get("med_days", 0))
+    weight_order = {"critical": 4, "high": 3, "mid": 2, "low": 1}
+    if weight_order.get(item.get("weight", "low"), 0) > weight_order.get(m["weight"], 0):
+        m["weight"] = item.get("weight", "mid")
+    if item.get("hospital") and item["hospital"] not in m["hospitals"]:
+        m["hospitals"].append(item["hospital"])
+
+
+def _sorted_strings(values) -> list[str]:
+    return sorted(str(v) for v in (values or []) if v)
+
+
+def _merged_item_sort_key(entry) -> tuple:
+    (code, q), item = entry
+    dates = _sorted_strings(item.get("dates", []))
+    return (q, code, dates[0] if dates else "", item.get("name", ""))
+
+
 def _build_reports_for_product(merged_items, disease_stats, product_type, d3m, d1y, d10y, d5y):
     """merged_items(표준 Q1-Q4 범위) + disease_stats → (summary_reports, flagged_codes)."""
     is_easy = product_type == "간편심사 (유병자 3-5-5 기준)"
@@ -457,7 +521,7 @@ def _build_reports_for_product(merged_items, disease_stats, product_type, d3m, d
     flagged_codes   = set()
     seen_pairs      = set()  # (code_key, effective_q) 중복 방지
 
-    for merge_key, m in merged_items.items():
+    for merge_key, m in sorted(merged_items.items(), key=_merged_item_sort_key):
         code_key = m["code"]
         q_orig   = m["duty_question"]
 
@@ -508,8 +572,8 @@ def _build_reports_for_product(merged_items, disease_stats, product_type, d3m, d
             _ds_inp_map        = _ds.get("_inpatient_days_map", {})
             ds_inpatient_days  = sum(_ds_inp_map.get(d, 1) for d in _ds_inp_dates) if _ds_inp_dates else 0
             ds_inpatient_count = len(_ds_inp_dates)
-            ds_visit_count     = len(_dts_in_range(_ds.get("visit_dates", set()), since_dt))
-            ds_med_days        = _max_presc(_ds.get("med_dates_pharma", {}), since_dt)
+            ds_visit_count     = _visit_count_in_range(_ds, since_dt)
+            ds_med_days        = _max_presc(_ds.get("med_dates_pharma_episode") or _ds.get("med_dates_pharma", {}), since_dt)
         else:
             dates_sorted       = sorted([d for d in m["dates"] if d])
             first_date         = dates_sorted[0]  if dates_sorted else ""
@@ -523,9 +587,9 @@ def _build_reports_for_product(merged_items, disease_stats, product_type, d3m, d
 
         _chojin          = _ds["chojin_count"]  if _ds else 0
         _jaejin          = _ds["jaejin_count"]  if _ds else 0
-        _procedures      = list(_ds.get("procedures", set()) or [])      if _ds else []
+        _procedures      = _sorted_strings(_ds.get("procedures", set()) or []) if _ds else []
         _proc_dates      = sorted(_ds.get("procedure_dates", set()) or []) if _ds else []
-        _surg_susp       = list(_ds.get("surgery_suspected_names", set()) or []) if _ds else []
+        _surg_susp       = _sorted_strings(_ds.get("surgery_suspected_names", set()) or []) if _ds else []
         _surg_susp_dates = sorted(_ds.get("surgery_suspected_dates", set()) or []) if _ds else []
 
         _at_res = _ds.get("_additional_test_result") if _ds else None
@@ -538,7 +602,7 @@ def _build_reports_for_product(merged_items, disease_stats, product_type, d3m, d
         else:
             _add_test_hit    = False
             _add_test_reason = ""
-            _additional_tests = [t[:50] for t in list(_ds.get("tests_found", set()) or [])[:8]] if _ds else []
+            _additional_tests = [t[:50] for t in _sorted_strings(_ds.get("tests_found", set()) or [])[:8]] if _ds else []
 
         if _to_res is not None:
             _tx_ongoing        = bool(_to_res.get("is_ongoing"))
@@ -589,7 +653,7 @@ def _build_reports_for_product(merged_items, disease_stats, product_type, d3m, d
 def _build_all_disease_summary(disease_stats):
     """disease_stats 전체를 날짜순으로 정리한 리스트 반환."""
     result = []
-    for code_key, s in disease_stats.items():
+    for code_key, s in sorted(disease_stats.items(), key=lambda kv: (kv[1].get("first_date", ""), kv[0])):
         if code_key.startswith("PHARMA|"):
             continue  # 처방조제 전용 항목 제외
         all_dates = sorted(s.get("visit_dates", set()) | s.get("inpatient_dates", set()) | s.get("surgery_dates", set()))
@@ -607,11 +671,11 @@ def _build_all_disease_summary(disease_stats):
             "name":            s.get("name", ""),
             "first_date":      first_date,
             "latest_date":     latest_date,
-            "visit_count":     len(s.get("visit_dates", set())),
+            "visit_count":     len(s.get("visit_events") or s.get("visit_dates", set())),
             "inpatient_count": len(inp_dates),
             "inpatient_days":  inpatient_days,
             "surgery_count":   len(s.get("surgery_dates", set())),
-            "med_days":        max(s.get("med_dates_pharma", {}).values(), default=0),
+            "med_days":        _max_presc(s.get("med_dates_pharma_episode") or s.get("med_dates_pharma", {}), datetime.min),
             "hospitals":       sorted(s.get("hospitals", set())),
         })
 
@@ -622,9 +686,10 @@ def _build_all_disease_summary(disease_stats):
 
 def new_disease():
     return {
-        "visit_dates": set(), "med_dates_basic": {}, "med_dates_pharma": {},
+        "visit_dates": set(), "visit_events": [], "med_dates_basic": {}, "med_dates_pharma": {},
+        "med_dates_pharma_episode": {},
         "drug_names_in_90": set(), "drug_names_before_90": set(),
-        "tests_found": set(), "inpatient_dates": set(),
+        "tests_found": set(), "test_events": [], "inpatient_dates": set(),
         "surgeries": set(), "surgery_dates": set(), "hospitals": set(),
         "procedures": set(),               # 시술 확정 (30만원이상 + 시술키워드)
         "procedure_dates": set(),          # 시술 날짜
@@ -662,6 +727,13 @@ def _dts_in_range(date_set, since_dt):
     return sorted(result)
 
 
+def _visit_count_in_range(stat, since_dt) -> int:
+    events = stat.get("visit_events") or []
+    if events:
+        return len(_dts_in_range(events, since_dt))
+    return len(_dts_in_range(stat.get("visit_dates", set()), since_dt))
+
+
 def _parse_ymd(value: str):
     try:
         return datetime.strptime(value, "%Y-%m-%d")
@@ -669,12 +741,51 @@ def _parse_ymd(value: str):
         return None
 
 
+def _recent_detail_test_events(stat: dict, since_dt: datetime) -> list[dict]:
+    events = []
+    daily_facts = stat.get("_daily_facts", {}) or {}
+    for event in stat.get("test_events") or []:
+        if not isinstance(event, dict):
+            continue
+        date = str(event.get("date") or "")
+        name = str(event.get("name") or "").strip()
+        if not date or not name:
+            continue
+        dt = _parse_ymd(date)
+        if not dt or dt < since_dt:
+            continue
+        day_fact = daily_facts.get(date, {}) or {}
+        same_day_actions = _sorted_strings(day_fact.get("detail_proc_names", set()))[:12]
+        events.append({
+            "date": date,
+            "name": name[:80],
+            "hospital": str(event.get("hospital") or "")[:40],
+            "same_day_detail_actions": [x[:80] for x in same_day_actions],
+            "source": "detail",
+        })
+    return sorted(events, key=lambda x: (x["date"], x["name"], x.get("hospital", "")))
+
+
+def _detail_test_type_count(events: list[dict]) -> int:
+    return len({str(event.get("name") or "").strip() for event in events if event.get("name")})
+
+
 def _max_presc(med_dict, since_dt):
-    return max(
-        (v for d, v in med_dict.items()
-         if d and datetime.strptime(d, "%Y-%m-%d") >= since_dt),
-        default=0,
-    ) if med_dict else 0
+    if not med_dict:
+        return 0
+    values = []
+    for d, v in med_dict.items():
+        if not d or datetime.strptime(d, "%Y-%m-%d") < since_dt:
+            continue
+        if isinstance(v, dict):
+            values.extend(int(x or 0) for x in v.values())
+        else:
+            values.append(int(v or 0))
+    if not values:
+        return 0
+    if any(isinstance(v, dict) for v in med_dict.values()):
+        return sum(values)
+    return max(values)
 
 
 def is_simple_q3_allowed(code: str) -> bool:
@@ -893,6 +1004,13 @@ async def _call_medical_judgment(
 
     contents = "\n\n".join(parts) + """
 
+[추가검사/재검사 판단 원칙]
+- detail_test_events는 세부진료 행위 중 검사 후보만 기계적으로 추린 자료입니다. 이 목록이 있다고 해서 곧바로 추가검사/재검사 고지가 아닙니다.
+- 같은 질병코드에서 최근 1년 이내 검사 후보가 2회 이상 또는 2종 이상인 경우만 후보로 전달됩니다.
+- true 판단: 진찰/검사 후 이상소견 확인, 추적 관찰 중 재검, 추가 진단 목적 검사, 같은 질병에 대한 반복 확인 검사로 보이는 경우.
+- false 판단: 초진 당일 한 번에 시행된 기본 검사 묶음, 건강검진/스크리닝/정기 모니터링, 단순 처방·처치 전 확인검사, 검사 후 추가 검사 없이 치료만 이어진 경우.
+- same_day_detail_actions를 함께 보고 진찰/처방/처치와 검사 후보가 어떤 관계인지 판단하세요.
+
 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트 없이 순수 JSON:
 {
   "additional_tests": [
@@ -911,7 +1029,10 @@ async def _call_medical_judgment(
     except TypeError:
         api_client = genai.Client(api_key=api_key)
 
-    config = types.GenerateContentConfig(system_instruction=MEDICAL_JUDGMENT_SYSTEM_PROMPT)
+    config = types.GenerateContentConfig(
+        system_instruction=MEDICAL_JUDGMENT_SYSTEM_PROMPT,
+        temperature=0,
+    )
 
     def _sync_gen():
         return api_client.models.generate_content(
@@ -975,7 +1096,10 @@ async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_dat
     MAX_RETRIES = 5
     RETRY_DELAYS = [5, 10, 20, 40, 60]
     contents = f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n진료 데이터:\n{raw_text}"
-    config = types.GenerateContentConfig(system_instruction=system_prompt)
+    config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        temperature=0,
+    )
 
     def _sync_generate():
         return api_client.models.generate_content(
@@ -1075,6 +1199,10 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         raise AnalysisError("PDF에서 데이터를 추출하지 못했습니다. 파일 형식이나 비밀번호를 확인해 주세요.")
 
     df = pd.DataFrame(all_records)
+    if "_ftype" in df.columns:
+        ftype_order = {"basic": 0, "nhis": 0, "unknown": 1, "detail": 2, "pharma": 3}
+        df["_parse_order"] = df["_ftype"].map(ftype_order).fillna(9)
+        df = df.sort_values("_parse_order", kind="stable").drop(columns=["_parse_order"])
     disease_stats = defaultdict(new_disease)
 
     # ── 날짜 파싱 실패/미래일자 추적 ────────────────────────────
@@ -1099,9 +1227,6 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
             continue
         ftype    = str(row.get("_ftype", "unknown"))
         dept     = get_val(row, ["진단과"])
-        # 기본진료내역에서 '진단과: 일반의'는 약국 처방성 데이터로 간주 → 전체 분석에서 제외
-        if ftype in ("basic", "unknown") and dept.replace(" ", "") == "일반의":
-            continue
         # 상병코드 추출 — "주상병" 단독 키는 "주상병코드" 컬럼과 부분일치하므로 절대 사용 금지
         if ftype == "pharma":
             raw_code = ""
@@ -1115,6 +1240,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
             if not raw_code:
                 raw_code = get_val(row, ["코드"])
         code_str = normalize_code(raw_code)
+        grouped_code_str = disclosure_group_code(code_str)
 
         # 상병명/행위명 추출
         # "주상병" 단독 키는 "주상병코드" 컬럼 값이 들어오므로 반드시 제외
@@ -1134,8 +1260,11 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         cost_raw = get_val(row, ["총진료비", "진료비", "총 진료비", "본인부담총액", "급여비용총액"])
         cost_val = _to_int_cost(cost_raw)
 
-        if code_str:
-            group_key = code_str
+        if ftype in ("basic", "unknown") and dept.replace(" ", "") == "일반의" and not _keep_basic_general_row(code_str):
+            continue
+
+        if grouped_code_str:
+            group_key = grouped_code_str
         elif ftype == "pharma":
             # 처방조제: 약품명+월로 임시 group (filters에서 KCD 미보유로 자동 스킵됨,
             # 약 변경/투약일수 집계용으로만 사용)
@@ -1157,8 +1286,12 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
 
         s = disease_stats[group_key]
 
-        if code_str and not s["diag_code"]:
-            s["diag_code"] = code_str
+        if grouped_code_str and not s["diag_code"]:
+            s["diag_code"] = grouped_code_str
+        if grouped_code_str and not s["name"]:
+            group_name = disclosure_group_name(grouped_code_str, "")
+            if group_name:
+                s["name"] = group_name
 
         if clean_date:
             dt = datetime.strptime(clean_date, "%Y-%m-%d")
@@ -1184,6 +1317,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                         s["_inpatient_days_map"][clean_date] = 0
                 else:
                     s["visit_dates"].add(clean_date)
+                    s.setdefault("visit_events", []).append(clean_date)
                 if m_days > 0:
                     prev = s["med_dates_basic"].get(clean_date, 0)
                     if m_days > prev:
@@ -1217,7 +1351,15 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                 day_fact["_is_surg_by_column"] = day_fact.get("_is_surg_by_column", False) or is_surg_by_column
                 for kw in test_keywords:
                     if kw in surg_target:
-                        s["tests_found"].add(surg_target); break
+                        s["tests_found"].add(surg_target)
+                        if clean_date and surg_target:
+                            s.setdefault("test_events", []).append({
+                                "date": clean_date,
+                                "name": surg_target,
+                                "hospital": hospital,
+                                "source": "detail",
+                            })
+                        break
                 # 초진/재진 카운트 (세부진료 행위명 기준)
                 _chk = act_name or name_str
                 if "초진" in _chk:
@@ -1249,6 +1391,9 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                             _prev = _ts["med_dates_pharma"].get(clean_date, 0)
                             if m_days > _prev:
                                 _ts["med_dates_pharma"][clean_date] = m_days
+                            _episode_key = hospital.strip() or "_unknown"
+                            _episode_map = _ts.setdefault("med_dates_pharma_episode", {}).setdefault(clean_date, {})
+                            _episode_map[_episode_key] = max(_episode_map.get(_episode_key, 0), m_days)
                         _drug = name_str.strip()
                         if _drug:
                             if days_ago <= 90:
@@ -1263,6 +1408,9 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                     prev = s["med_dates_pharma"].get(clean_date, 0)
                     if m_days > prev:
                         s["med_dates_pharma"][clean_date] = m_days
+                    _episode_key = hospital.strip() or "_unknown"
+                    _episode_map = s.setdefault("med_dates_pharma_episode", {}).setdefault(clean_date, {})
+                    _episode_map[_episode_key] = max(_episode_map.get(_episode_key, 0), m_days)
                 drug = name_str.strip()
                 if drug:
                     if days_ago <= 90: s["drug_names_in_90"].add(drug)
@@ -1277,6 +1425,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                     s["has_pharma"] = True
                 else:
                     s["visit_dates"].add(clean_date)
+                    s.setdefault("visit_events", []).append(clean_date)
                 # nhis는 강한 수술 키워드 사용 (nhis_surg_keywords는 의료수가 코드 기반이라 오탐 낮음)
                 if _is_surgery_match(name_str) or any(kw in name_str for kw in nhis_surg_keywords):
                     s["surgeries"].add(name_str)
@@ -1318,7 +1467,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
             s["hospitals"].add(hospital)
         # 질병명은 기본진료/nhis 에서만 설정 — 세부진료 행위명·약품명으로 덮지 않음
         if name_str and not s["name"] and ftype not in ("detail", "pharma"):
-            s["name"] = name_str
+            s["name"] = disclosure_group_name(code_str, name_str)
 
     # ── 기본진료+세부진료 동일일자 교차 수술/시술 판정 ──────────────
     # 규칙:
@@ -1353,7 +1502,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                     if idx["detail_proc_names"]:
                         _s["surgeries"].update(idx["detail_proc_names"])
                 cross_surgery_hints.append(
-                    f"{d} {_dc or ckey} {'|'.join(list(idx.get('detail_proc_names', set()))[:2]) or _name} "
+                    f"{d} {_dc or ckey} {'|'.join(_sorted_strings(idx.get('detail_proc_names', set()))[:2]) or _name} "
                     f"컬럼확정(처치및수술+기본진료비 {max_cost:,}원)"
                 )
 
@@ -1369,7 +1518,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                                 _s["surgeries"].add(pn)
                         if not (_s["surgeries"] & set(idx["detail_proc_names"])):
                             _s["surgeries"].update(idx["detail_proc_names"])
-                        _hint_name = next(iter(idx["detail_proc_names"]))
+                        _hint_name = next(iter(_sorted_strings(idx["detail_proc_names"])))
                     else:
                         _hint_name = _name or _dc or "수술"
                     cross_surgery_hints.append(
@@ -1377,7 +1526,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                     )
                 elif has_detail_proc:
                     # 50만원 이상이지만 수술 키워드 없음 → 수술 의심
-                    _hint_name = next(iter(idx["detail_proc_names"]), _name or "수술 의심")
+                    _hint_name = next(iter(_sorted_strings(idx["detail_proc_names"])), _name or "수술 의심")
                     _s["surgery_suspected_names"].add(_hint_name)
                     _s["surgery_suspected_dates"].add(d)
                     cross_surgery_hints.append(
@@ -1393,7 +1542,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                     _s["procedure_dates"].add(d)
                 elif has_detail_surg_kw:
                     # 수술 키워드 있지만 50만원 미만 → AI 힌트 전달
-                    _hint_name = next(iter(idx["detail_proc_names"])) if idx["detail_proc_names"] else (_name or _dc or "진료")
+                    _hint_name = next(iter(_sorted_strings(idx["detail_proc_names"]))) if idx["detail_proc_names"] else (_name or _dc or "진료")
                     cross_surgery_hints.append(
                         f"{d} {_dc or ckey} {_hint_name} 교차후보(수술키워드+기본진료비 {max_cost:,}원) ★AI판단필요"
                     )
@@ -1531,11 +1680,11 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                 drug_change_summary.append({
                     "group":          group_key,
                     "name":           s.get("name", group_key),
-                    "continued":      list(continued_drugs)[:3],
-                    "stopped":        list(stopped_drugs)[:3],
-                    "new":            list(new_drugs)[:3],
-                    "dose_increased": dose_increased[:3],
-                    "dose_decreased": dose_decreased[:3],
+                    "continued":      sorted(continued_drugs)[:3],
+                    "stopped":        sorted(stopped_drugs)[:3],
+                    "new":            sorted(new_drugs)[:3],
+                    "dose_increased": sorted(dose_increased)[:3],
+                    "dose_decreased": sorted(dose_decreased)[:3],
                     "change_type":    change_type,
                 })
                 # disease_stats에 3개월 내 약 변경 플래그 설정
@@ -2059,14 +2208,25 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
         _jname   = _js.get("name", "")
         _jlatest = _js.get("latest_date", "")
 
-        # 판단 1: tests_found가 있으면 → 추가검사 여부 판단
-        if _js.get("tests_found") and _jdc not in _seen_mj1:
+        # 판단 1: 세부진료 검사 후보가 1년 이내 반복/다종이면 API가 추가검사 여부 최종 판단
+        _detail_test_events_1y = _recent_detail_test_events(_js, _d1y_dt)
+        _detail_test_types_1y = _detail_test_type_count(_detail_test_events_1y)
+        if (
+            _detail_test_events_1y
+            and (len(_detail_test_events_1y) >= 2 or _detail_test_types_1y >= 2)
+            and _jdc not in _seen_mj1
+        ):
             _seen_mj1.add(_jdc)
             _mj_type1.append({
-                "disease_code": _jdc,
-                "disease_name": _jname,
-                "date":         _jlatest,
-                "treatments":   [t[:40] for t in list(_js["tests_found"])[:10]],
+                "disease_code":      _jdc,
+                "disease_name":      _jname,
+                "latest_date":       _jlatest,
+                "reference_date":    today_str,
+                "lookback":          "최근 1년",
+                "candidate_rule":    "same disease code detail tests >=2 events or >=2 types",
+                "test_event_count":  len(_detail_test_events_1y),
+                "test_type_count":   _detail_test_types_1y,
+                "detail_test_events": _detail_test_events_1y[:20],
             })
 
         # 판단 2: 마지막 진료일이 3개월 이내
@@ -2076,15 +2236,15 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
             _all_procs: set[str] = set()
             for _df_val in _js.get("_daily_facts", {}).values():
                 _all_procs.update(_df_val.get("detail_proc_names", set()))
-            _treatments = list(
-                (_all_procs | _js.get("tests_found", set()) | _js.get("surgeries", set()))
+            _treatments = _sorted_strings(
+                _all_procs | _js.get("tests_found", set()) | _js.get("surgeries", set())
             )[:15]
             _presc_list: list[dict] = []
             for _pd, _pdays in sorted(_js.get("med_dates_pharma", {}).items(), reverse=True)[:5]:
                 _pdt2 = _parse_ymd(_pd)
                 if _pdt2 and _pdt2 >= _d3m_dt and _pdays > 0:
                     _presc_list.append({"date": _pd, "days": _pdays})
-            _recent_drugs = [d[:30] for d in list(_js.get("drug_names_in_90", set()))[:5]]
+            _recent_drugs = [d[:30] for d in _sorted_strings(_js.get("drug_names_in_90", set()))[:5]]
             _mj_type2.append({
                 "disease_code":  _jdc,
                 "disease_name":  _jname,
@@ -2165,6 +2325,45 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
         if _jdc in _to_results:
             _js["_treatment_ongoing_result"] = _to_results[_jdc]
 
+        _at = _js.get("_additional_test_result")
+        if _at and bool(_at.get("is_additional_test")):
+            _events_1y = _recent_detail_test_events(_js, _d1y_dt)
+            if _events_1y:
+                _event_dates = [e["date"] for e in _events_1y if e.get("date")]
+                _test_names = _sorted_strings({e["name"] for e in _events_1y if e.get("name")})
+                _med_dict = _js.get("med_dates_pharma_episode") or _js.get("med_dates_pharma", {})
+                code_based_items.append({
+                    "date": max(_event_dates) if _event_dates else _js.get("latest_date", ""),
+                    "code": _jdc,
+                    "disease": _js.get("name", "") or _jdc,
+                    "hospital": " / ".join(_sorted_strings(_js.get("hospitals", set()))[:2]) or "정보 없음",
+                    "duty_question": "Q2",
+                    "reason": _at.get("reason") or (
+                        f"1년 이내 세부진료 검사 {len(_events_1y)}회/"
+                        f"{_detail_test_type_count(_events_1y)}종 - API 추가검사/재검사 판단"
+                    ),
+                    "is_inpatient": False,
+                    "inpatient_days": 0,
+                    "inpatient_count": 0,
+                    "visit_count": _visit_count_in_range(_js, _d1y_dt),
+                    "is_surgery": False,
+                    "surgery_name": None,
+                    "med_days": _max_presc(_med_dict, _d1y_dt),
+                    "first_diagnosis_date": _js.get("first_date", ""),
+                    "weight": "mid",
+                    "_source": "medical_judgment",
+                    "_rule_id": "R-H-Q2-TEST-API",
+                    "_evidence": {
+                        "api_reason": _at.get("reason", ""),
+                        "test_type": _at.get("test_type", ""),
+                        "test_event_count": len(_events_1y),
+                        "test_type_count": _detail_test_type_count(_events_1y),
+                        "test_names": _test_names[:10],
+                        "test_dates": _event_dates,
+                        "source": "detail+api",
+                    },
+                })
+
     # 프롬프트/API 관련 대형 문자열 해제
     del system_prompt
     del cross_day_index, seen_code_dates
@@ -2210,6 +2409,8 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
                 code_claimed.add(merge_key)
                 if merge_key not in merged_items:
                     merged_items[merge_key] = _make_merged_item(item, q, code_key)
+                else:
+                    _merge_item_into(merged_items[merge_key], item)
                 continue
 
             if merge_key in code_claimed:
@@ -2218,24 +2419,7 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
             if merge_key not in merged_items:
                 merged_items[merge_key] = _make_merged_item(item, q, code_key)
             else:
-                m = merged_items[merge_key]
-                if item.get("date"):
-                    m["dates"].append(item.get("date", ""))
-                if item.get("is_surgery"):
-                    m["is_surgery"] = True
-                    if item.get("date"):
-                        m["surgery_dates"].append(item.get("date", ""))
-                m["inpatient_days"] = max(m["inpatient_days"], item.get("inpatient_days", 0))
-                m["inpatient_count"] = max(m["inpatient_count"], item.get("inpatient_count", 0))
-                m["visit_count"] = max(m["visit_count"], item.get("visit_count", 0))
-                if item.get("first_diagnosis_date") and item["first_diagnosis_date"] < m.get("first_diagnosis_date", "2099-12-31"):
-                    m["first_diagnosis_date"] = item["first_diagnosis_date"]
-                m["med_days"] = max(m["med_days"], item.get("med_days", 0))
-                weight_order = {"critical": 4, "high": 3, "mid": 2, "low": 1}
-                if weight_order.get(item.get("weight", "low"), 0) > weight_order.get(m["weight"], 0):
-                    m["weight"] = item.get("weight", "mid")
-                if item.get("hospital") and item["hospital"] not in m["hospitals"]:
-                    m["hospitals"].append(item["hospital"])
+                _merge_item_into(merged_items[merge_key], item)
 
     # ── 상품별 고지사항 빌드 (표준 / 간편) ────────────────────────
     std_reports, std_flagged = _build_reports_for_product(

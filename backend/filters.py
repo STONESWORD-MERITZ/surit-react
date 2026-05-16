@@ -57,6 +57,13 @@ def _dts_in_range(date_set, since_dt) -> list[str]:
     return sorted(result)
 
 
+def _visit_count_in_range(stat: dict[str, Any], since_dt) -> int:
+    events = stat.get("visit_events") or []
+    if events:
+        return len(_dts_in_range(events, since_dt))
+    return len(_dts_in_range(stat.get("visit_dates", set()), since_dt))
+
+
 def _parse_ymd(value: str):
     try:
         return datetime.strptime(value, "%Y-%m-%d")
@@ -65,11 +72,21 @@ def _parse_ymd(value: str):
 
 
 def _max_presc(med_dict, since_dt) -> int:
-    return max(
-        (v for d, v in med_dict.items()
-         if d and datetime.strptime(d, "%Y-%m-%d") >= since_dt),
-        default=0,
-    ) if med_dict else 0
+    if not med_dict:
+        return 0
+    values = []
+    for d, v in med_dict.items():
+        if not d or datetime.strptime(d, "%Y-%m-%d") < since_dt:
+            continue
+        if isinstance(v, dict):
+            values.extend(int(x or 0) for x in v.values())
+        else:
+            values.append(int(v or 0))
+    if not values:
+        return 0
+    if any(isinstance(v, dict) for v in med_dict.values()):
+        return sum(values)
+    return max(values)
 
 
 # KCD-7 상병코드 패턴: 영문 1자(A~Z) + 숫자 2~4자 + 옵션 숫자/문자
@@ -153,6 +170,10 @@ def _weight_for(code: str) -> str:
     return "mid"
 
 
+def _sorted_strings(values: Iterable[Any]) -> list[str]:
+    return sorted(str(v) for v in (values or []) if v)
+
+
 def _make_item(
     *, q: str, code: str, disease: str, hospital: str,
     reason: str, date: str = "", weight: str = "mid",
@@ -176,7 +197,7 @@ def _make_item(
 def _chronic_drug_hits(drug_names: Iterable[str]) -> dict[str, list[str]]:
     """상시복용 약물 카테고리 매칭 → {카테고리: [매칭된 약품명...]}"""
     hits: dict[str, list[str]] = {}
-    for raw in drug_names:
+    for raw in _sorted_strings(drug_names):
         if not raw:
             continue
         s = raw.lower()
@@ -243,7 +264,7 @@ def _build_health(
             continue
         if not nm:
             nm = dc
-        hp = " / ".join(list(s.get("hospitals", set()))[:2]) or "정보 없음"
+        hp = " / ".join(_sorted_strings(s.get("hospitals", set()))[:2]) or "정보 없음"
         fd = s.get("first_date", "2099-12-31")
         ld = s.get("latest_date", "2000-01-01")
 
@@ -253,7 +274,9 @@ def _build_health(
         inp_10y  = _dts_in_range(s.get("inpatient_dates", set()), d10y)
         surg_10y = _dts_in_range(s.get("surgery_dates", set()), d10y)
         visit_3m  = _dts_in_range(s.get("visit_dates", set()), d3m)
+        visit_3m_count = _visit_count_in_range(s, d3m)
         visit_10y = _dts_in_range(s.get("visit_dates", set()), d10y)
+        visit_10y_count = _visit_count_in_range(s, d10y)
         all_5y   = _dts_in_range(
             s.get("visit_dates", set()) | s.get("inpatient_dates", set()) | s.get("surgery_dates", set()),
             d5y,
@@ -265,13 +288,13 @@ def _build_health(
         inp10y_days = sum(inp_map.get(d, 1) for d in inp_10y) if inp_10y else 0
 
         # ── 투약일수 ──
-        med_pharma = s.get("med_dates_pharma", {})
+        med_pharma = s.get("med_dates_pharma_episode") or s.get("med_dates_pharma", {})
         presc_3m   = _max_presc(med_pharma, d3m)
         presc_10y  = _max_presc(med_pharma, d10y)
         presc_5y   = _max_presc(med_pharma, d5y)
 
         wt = _weight_for(dc)
-        sn = next(iter(s.get("surgeries", set())), None)
+        sn = next(iter(_sorted_strings(s.get("surgeries", set()))), None)
 
         ci = lambda **kw: _make_item(code=dc, disease=nm, hospital=hp,
                                      first_diagnosis_date=fd, **kw)
@@ -287,7 +310,7 @@ def _build_health(
                 q="Q1", rule_id="R-H-Q1-DIAG-3M",
                 reason=f"3개월 이내 확정진단: {nm} ({dc})",
                 date=fd, weight=wt,
-                visit_count=len(visit_3m), med_days=presc_3m,
+                visit_count=visit_3m_count, med_days=presc_3m,
                 evidence={"first_date": fd, "code": dc},
             ))
 
@@ -299,7 +322,7 @@ def _build_health(
                 date=max(inp_3m), weight=wt,
                 is_inpatient=True, inpatient_days=inp3m_days,
                 inpatient_count=len(inp_3m),
-                visit_count=len(visit_3m), med_days=presc_3m,
+                visit_count=visit_3m_count, med_days=presc_3m,
                 evidence={"dates": inp_3m, "actual_days": inp3m_days},
             ))
 
@@ -310,7 +333,7 @@ def _build_health(
                 reason=f"3개월 이내 수술: {sn or '수술'} — 세부진료 확정",
                 date=max(surg_3m), weight=wt,
                 is_surgery=True, surgery_name=sn,
-                visit_count=len(visit_3m), med_days=presc_3m,
+                visit_count=visit_3m_count, med_days=presc_3m,
                 evidence={"dates": surg_3m, "surgery": sn},
             ))
 
@@ -318,14 +341,14 @@ def _build_health(
         chronic_hits = _chronic_drug_hits(s.get("drug_names_in_90", set()))
         chronic_fired = False
         if chronic_hits and presc_3m >= Q1_CHRONIC_DRUG_DAYS_THRESHOLD:
-            cat = next(iter(chronic_hits))
+            cat = next((c for c in CHRONIC_DRUG_CATEGORIES if c in chronic_hits), next(iter(chronic_hits)))
             drugs = chronic_hits[cat]
             items.append(ci(
                 q="Q1", rule_id="R-H-Q1-CHRONIC-DRUG",
                 reason=f"3개월 이내 상시복용약: {cat} ({', '.join(drugs[:2])})",
                 date=ld, weight="high",
                 med_days=presc_3m,
-                visit_count=len(visit_3m),
+                visit_count=visit_3m_count,
                 evidence={"category": cat, "matched_drugs": drugs, "presc_days": presc_3m},
             ))
             chronic_fired = True
@@ -336,7 +359,7 @@ def _build_health(
                 q="Q1", rule_id="R-H-Q1-MED-3M",
                 reason=f"3개월 이내 처방 투약 ({presc_3m}일)",
                 date=ld, weight=wt,
-                med_days=presc_3m, visit_count=len(visit_3m),
+                med_days=presc_3m, visit_count=visit_3m_count,
                 evidence={"presc_days": presc_3m, "source": "처방조제"},
             ))
 
@@ -350,7 +373,7 @@ def _build_health(
                 date=max(inp_10y), weight=wt,
                 is_inpatient=True, inpatient_days=inp10y_days,
                 inpatient_count=len(inp_10y),
-                visit_count=len(visit_10y), med_days=presc_10y,
+                visit_count=visit_10y_count, med_days=presc_10y,
                 evidence={"dates": inp_10y, "actual_days": inp10y_days},
             ))
 
@@ -363,18 +386,18 @@ def _build_health(
                 is_surgery=True, surgery_name=sn,
                 is_inpatient=bool(inp_10y), inpatient_days=inp10y_days,
                 inpatient_count=len(inp_10y),
-                visit_count=len(visit_10y), med_days=presc_10y,
+                visit_count=visit_10y_count, med_days=presc_10y,
                 evidence={"dates": surg_10y, "surgery": sn},
             ))
 
         # R-H-Q3-VISIT-7: 10년 이내 7회 이상 통원 (입원/수술 유무 무관)
-        if len(visit_10y) >= 7:
+        if visit_10y_count >= 7:
             items.append(ci(
                 q="Q3", rule_id="R-H-Q3-VISIT-7",
-                reason=f"10년 이내 7회 이상 통원 ({len(visit_10y)}회) — 기본진료 확정",
+                reason=f"10년 이내 7회 이상 통원 ({visit_10y_count}회) — 기본진료 확정",
                 date=ld, weight=wt,
-                visit_count=len(visit_10y), med_days=presc_10y,
-                evidence={"visit_count": len(visit_10y), "dates": visit_10y},
+                visit_count=visit_10y_count, med_days=presc_10y,
+                evidence={"visit_count": visit_10y_count, "dates": visit_10y},
             ))
 
         # R-H-Q3-MED-30D: 10년 이내 30일 이상 투약 (입원/수술 유무 무관)
@@ -383,7 +406,7 @@ def _build_health(
                 q="Q3", rule_id="R-H-Q3-MED-30D",
                 reason=f"10년 이내 30일 이상 투약 ({presc_10y}일) — 처방조제 확정",
                 date=ld, weight=wt,
-                visit_count=len(visit_10y), med_days=presc_10y,
+                visit_count=visit_10y_count, med_days=presc_10y,
                 evidence={"presc_days": presc_10y, "source": "처방조제"},
             ))
 
@@ -400,7 +423,7 @@ def _build_health(
                 date=max(all_5y), weight="critical" if wt == "critical" else "high",
                 is_inpatient=bool(inp_5y), inpatient_days=inp5y_days,
                 inpatient_count=len(inp_5y),
-                visit_count=len(_dts_in_range(s.get("visit_dates", set()), d5y)),
+                visit_count=_visit_count_in_range(s, d5y),
                 med_days=presc_5y,
                 is_surgery=bool(surg_5y), surgery_name=sn if surg_5y else None,
                 evidence={"code": dc, "matched_prefix": "HEALTH_Q5_CODES"},
@@ -426,7 +449,7 @@ def _build_easy(
             continue
         if not nm:
             nm = dc
-        hp = " / ".join(list(s.get("hospitals", set()))[:2]) or "정보 없음"
+        hp = " / ".join(_sorted_strings(s.get("hospitals", set()))[:2]) or "정보 없음"
         fd = s.get("first_date", "2099-12-31")
         ld = s.get("latest_date", "2000-01-01")
 
@@ -435,6 +458,7 @@ def _build_easy(
         inp_10y  = _dts_in_range(s.get("inpatient_dates", set()), d10y)
         surg_10y = _dts_in_range(s.get("surgery_dates", set()), d10y)
         visit_3m  = _dts_in_range(s.get("visit_dates", set()), d3m)
+        visit_3m_count = _visit_count_in_range(s, d3m)
         all_5y   = _dts_in_range(
             s.get("visit_dates", set()) | s.get("inpatient_dates", set()) | s.get("surgery_dates", set()),
             d5y,
@@ -447,13 +471,13 @@ def _build_easy(
         inp10y_days = sum(inp_map.get(d, 1) for d in inp_10y) if inp_10y else 0
         inp5y_days  = sum(inp_map.get(d, 1) for d in inp_5y)  if inp_5y  else 0
 
-        med_pharma = s.get("med_dates_pharma", {})
+        med_pharma = s.get("med_dates_pharma_episode") or s.get("med_dates_pharma", {})
         presc_3m   = _max_presc(med_pharma, d3m)
         presc_5y   = _max_presc(med_pharma, d5y)
         presc_10y  = _max_presc(med_pharma, d10y)
 
         wt = _weight_for(dc)
-        sn = next(iter(s.get("surgeries", set())), None)
+        sn = next(iter(_sorted_strings(s.get("surgeries", set()))), None)
 
         ci = lambda **kw: _make_item(code=dc, disease=nm, hospital=hp,
                                      first_diagnosis_date=fd, **kw)
@@ -469,7 +493,7 @@ def _build_easy(
                 q="Q1", rule_id="R-E-Q1-DIAG-3M",
                 reason=f"3개월 이내 확정진단: {nm} ({dc})",
                 date=fd, weight=wt,
-                visit_count=len(visit_3m), med_days=presc_3m,
+                visit_count=visit_3m_count, med_days=presc_3m,
                 evidence={"first_date": fd, "code": dc},
             ))
 
@@ -481,7 +505,7 @@ def _build_easy(
                 date=max(inp_3m), weight=wt,
                 is_inpatient=True, inpatient_days=inp3m_days,
                 inpatient_count=len(inp_3m),
-                visit_count=len(visit_3m), med_days=presc_3m,
+                visit_count=visit_3m_count, med_days=presc_3m,
                 evidence={"dates": inp_3m, "actual_days": inp3m_days},
             ))
 
@@ -492,7 +516,7 @@ def _build_easy(
                 reason=f"3개월 이내 수술: {sn or '수술'} — 세부진료 확정",
                 date=max(surg_3m), weight=wt,
                 is_surgery=True, surgery_name=sn,
-                visit_count=len(visit_3m), med_days=presc_3m,
+                visit_count=visit_3m_count, med_days=presc_3m,
                 evidence={"dates": surg_3m, "surgery": sn},
             ))
 
@@ -506,7 +530,7 @@ def _build_easy(
                 q="Q1", rule_id="R-E-Q1-DRUG-CHANGE",
                 reason="3개월 이내 처방 변경 — 약 종류/용량 변경",
                 date=ld, weight="high",
-                med_days=presc_3m, visit_count=len(visit_3m),
+                med_days=presc_3m, visit_count=visit_3m_count,
                 evidence={"drug_change_in_3m": True},
             ))
 
@@ -547,7 +571,7 @@ def _build_easy(
                 date=max(all_5y), weight="critical",
                 is_inpatient=bool(inp_5y), inpatient_days=inp5y_days,
                 inpatient_count=len(inp_5y),
-                visit_count=len(_dts_in_range(s.get("visit_dates", set()), d5y)),
+                visit_count=_visit_count_in_range(s, d5y),
                 med_days=presc_5y,
                 is_surgery=bool(surg_5y), surgery_name=sn if surg_5y else None,
                 evidence={"code": dc, "matched_prefix": "SIMPLE_Q3_CODES"},

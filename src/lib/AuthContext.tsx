@@ -1,24 +1,10 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import type { User, Session } from "@supabase/supabase-js";
+import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { AuthContext } from "./auth-context";
 import { supabase } from "./supabase";
 
-type AuthState = {
-  user: User | null;
-  session: Session | null;
-  loading: boolean;
-  signOut: () => Promise<void>;
-};
-
-const Ctx = createContext<AuthState>({
-  user: null,
-  session: null,
-  loading: true,
-  signOut: async () => {},
-});
-
-export const useAuth = () => useContext(Ctx);
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -40,8 +26,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ user: session?.user ?? null, session, loading, signOut }}>
+    <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signOut }}>
       {children}
-    </Ctx.Provider>
+    </AuthContext.Provider>
   );
 }

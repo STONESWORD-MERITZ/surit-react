@@ -25,6 +25,7 @@ def _disease(
     pharma_dates=None,
     drugs_in_90=(),
     drugs_before_90=(),
+    test_events=(),
 ):
     return {
         "visit_dates": set(visits),
@@ -39,6 +40,7 @@ def _disease(
         "_inpatient_days_map": {d: 1 for d in (inpatients or [])},
         "hospitals": {"서울내과"},
         "tests_found": set(),
+        "test_events": list(test_events),
         "procedures": set(),
         "procedure_dates": set(),
         "surgery_suspected_names": set(),
@@ -123,6 +125,28 @@ def test_health_q3_med_30d_with_inpatient():
     assert "R-H-Q3-INP-10Y" in rule_ids
 
 
+def test_health_q3_med_30d_from_prescription_episodes():
+    """날짜/기관별 처방 에피소드 합산이 30일 이상이면 Q3 투약으로 본다."""
+    ds = {
+        "M54": _disease(
+            code="M54",
+            name="등통증(경추 및 요추)",
+            visits=[f"2023-09-{d:02d}" for d in range(1, 8)],
+            first="2023-09-01",
+            latest="2023-09-27",
+        )
+    }
+    ds["M54"]["med_dates_pharma_episode"] = {
+        "2023-09-04": {"민재활의학과의원": 7, "하나로약국": 7},
+        "2023-09-11": {"민재활의학과의원": 7, "하나로약국": 7},
+        "2023-09-27": {"신원비뇨기과의원": 6, "성모약국": 6},
+    }
+    items = build_code_based_items(ds, REF, PRODUCT_HEALTH)
+    med_items = [it for it in items if it["_rule_id"] == "R-H-Q3-MED-30D"]
+    assert len(med_items) == 1
+    assert med_items[0]["med_days"] >= 30
+
+
 def test_health_q4_critical_codes():
     """C/D0/I10~I15/I20~I22/I60~I64/K74/E10~E14/B20~B24 모두 Q4 매칭"""
     for code in ["C50", "D00", "I10", "I20", "I21", "I60", "I63", "K74", "E11", "B20"]:
@@ -171,6 +195,47 @@ def test_health_q1_med_3m_no_chronic():
     rule_ids = {it["_rule_id"] for it in items}
     assert "R-H-Q1-MED-3M" in rule_ids
     assert "R-H-Q1-CHRONIC-DRUG" not in rule_ids
+
+
+def test_health_q2_detail_events_are_not_code_based_final_judgment():
+    """세부진료 반복검사는 API 판단 후보일 뿐 코드 기반 Q2로 확정하지 않는다."""
+    ds = {
+        "R51": _disease(
+            code="R51",
+            name="두통",
+            visits=["2026-01-10", "2026-02-10"],
+            first="2026-01-10",
+            latest="2026-02-10",
+            test_events=[
+                {"date": "2026-01-10", "name": "혈액검사", "source": "detail"},
+                {"date": "2026-02-10", "name": "혈액검사", "source": "detail"},
+            ],
+        )
+    }
+    items = build_code_based_items(ds, REF, PRODUCT_HEALTH)
+    rule_ids = {it["_rule_id"] for it in items}
+    assert "R-H-Q2-TEST-REPEAT-SUSPECT" not in rule_ids
+    assert "R-H-Q2-TEST-API" not in rule_ids
+
+
+def test_health_q2_old_repeat_tests_do_not_match():
+    """건강체 Q2는 1년 이내 추가검사 기준이므로 오래된 반복검사는 제외."""
+    ds = {
+        "R51": _disease(
+            code="R51",
+            name="두통",
+            visits=["2024-01-10", "2024-02-10"],
+            first="2024-01-10",
+            latest="2024-02-10",
+            test_events=[
+                {"date": "2024-01-10", "name": "혈액검사", "source": "detail"},
+                {"date": "2024-02-10", "name": "영상검사", "source": "detail"},
+            ],
+        )
+    }
+    items = build_code_based_items(ds, REF, PRODUCT_HEALTH)
+    rule_ids = {it["_rule_id"] for it in items}
+    assert "R-H-Q2-TEST-REPEAT-SUSPECT" not in rule_ids
 
 
 def test_health_q3_visit7_with_inpatient():
