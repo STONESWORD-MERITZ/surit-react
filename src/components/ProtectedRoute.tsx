@@ -6,7 +6,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen text-gray-400 text-sm">
+      <div className="flex min-h-screen items-center justify-center text-sm text-gray-400">
         로딩 중...
       </div>
     );

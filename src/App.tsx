@@ -29,8 +29,9 @@ export default function App() {
           <Route index element={<Home />} />
           <Route
             path="disclosure"
-            element={<ProtectedRoute><Disclosure /></ProtectedRoute>}
+            element={<ProtectedRoute><Disclosure initialMode="agent" /></ProtectedRoute>}
           />
+          <Route path="check" element={<Disclosure initialMode="customer" />} />
           <Route
             path="before-after"
             element={<ProtectedRoute><BeforeAfter /></ProtectedRoute>}

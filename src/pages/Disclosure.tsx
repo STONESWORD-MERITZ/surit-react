@@ -1,14 +1,17 @@
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
+type AudienceMode = "customer" | "agent";
+
 function connectionErrorMessage(apiBase: string): string {
   return (
-    "서버에 연결할 수 없습니다(Failed to fetch). " +
+    "서버에 연결할 수 없습니다. " +
     (typeof window !== "undefined" && window.location.hostname !== "localhost"
-      ? `프론트 배포 환경에서는 VITE_API_URL로 백엔드 주소를 설정해야 합니다. (현재 요청: ${apiBase}) `
+      ? `배포 환경에서는 VITE_API_URL에 백엔드 주소가 설정되어야 합니다. 현재 요청 주소: ${apiBase}. `
       : "") +
-    "백엔드가 실행 중인지, CORS 설정을 확인해 주세요."
+    "백엔드 실행 상태와 CORS 설정을 확인해 주세요."
   );
 }
 
@@ -68,8 +71,45 @@ type AnalyzeResult = {
   meritz_easy_message: string;
 };
 
-// ── 위험도 판정 ──────────────────────────────────────────────
 type Risk = "red" | "orange" | "gray" | "yellow" | "green";
+
+const modeCopy: Record<AudienceMode, {
+  badge: string;
+  title: string;
+  subtitle: string;
+  dateLabel: string;
+  dateHelp: string;
+  uploadHelp: string;
+  button: string;
+  emptyTitle: string;
+  resultTitle: string;
+  memoLabel: string;
+}> = {
+  customer: {
+    badge: "고객용 무료 점검",
+    title: "내 보험 고지 점검",
+    subtitle: "이전에 가입한 보험이 청약 당시 병력 고지사항을 잘 지켜 가입됐는지 확인합니다.",
+    dateLabel: "가입일 또는 점검 기준일",
+    dateHelp: "이미 가입한 보험을 확인할 때는 해당 상품의 청약일을 넣어 주세요.",
+    uploadHelp: "건강e음에서 발급한 기본진료, 세부진료, 처방조제 PDF를 올려 주세요.",
+    button: "내 고지 리스크 점검",
+    emptyTitle: "현재 기준으로 뚜렷한 고지 검토 항목이 없습니다.",
+    resultTitle: "가입 당시 고지 검토 결과",
+    memoLabel: "고객 안내용 점검 메모",
+  },
+  agent: {
+    badge: "설계사용",
+    title: "알릴의무 필터",
+    subtitle: "심평원 병력 PDF를 기준으로 건강체와 간편심사 고지 대상 병력을 정리합니다.",
+    dateLabel: "청약 예정일",
+    dateHelp: "상품 가입 예정일 기준으로 3개월, 1년, 5년, 10년 기간을 계산합니다.",
+    uploadHelp: "기본진료, 세부진료, 처방조제 PDF를 함께 올리면 정확도가 올라갑니다.",
+    button: "AI 고지사항 추출",
+    emptyTitle: "선택한 상품 기준의 고지 대상 항목이 없습니다.",
+    resultTitle: "상품별 고지사항",
+    memoLabel: "카카오 전송용 메시지",
+  },
+};
 
 function riskOf(item: SummaryItem): Risk {
   const surgN = item.surgery_count ?? item.surgeries?.length ?? 0;
@@ -82,58 +122,60 @@ function riskOf(item: SummaryItem): Risk {
   return "green";
 }
 
-const RISK: Record<Risk, { border: string; label: string; pill: string; bg: string; text: string }> = {
-  red:    { border: "border-red-400",     label: "text-red-600",     pill: "bg-red-100 text-red-600",        bg: "bg-red-50",     text: "text-red-700" },
-  orange: { border: "border-orange-400",  label: "text-orange-600",  pill: "bg-orange-100 text-orange-600",  bg: "bg-orange-50",  text: "text-orange-700" },
-  gray:   { border: "border-gray-400",    label: "text-gray-500",    pill: "bg-gray-100 text-gray-600",      bg: "bg-gray-50",    text: "text-gray-600" },
-  yellow: { border: "border-amber-400",   label: "text-amber-600",   pill: "bg-amber-100 text-amber-700",    bg: "bg-amber-50",   text: "text-amber-700" },
-  green:  { border: "border-emerald-400", label: "text-emerald-600", pill: "bg-emerald-100 text-emerald-700",bg: "bg-emerald-50", text: "text-emerald-700" },
+const RISK: Record<Risk, { border: string }> = {
+  red: { border: "border-red-400" },
+  orange: { border: "border-orange-400" },
+  gray: { border: "border-gray-400" },
+  yellow: { border: "border-amber-400" },
+  green: { border: "border-emerald-400" },
 };
 
 function Chip({ label, tone = "gray" }: { label: string; tone?: string }) {
   const tones: Record<string, string> = {
-    gray:        "bg-gray-100 text-gray-600",
-    "gray-light":"bg-gray-50 text-gray-400 border border-gray-200",
-    red:         "bg-red-100 text-red-600",
-    "red-light": "bg-red-50 text-red-500 border border-red-200",
-    amber:       "bg-amber-100 text-amber-700",
-    emerald:     "bg-emerald-100 text-emerald-700",
-    orange:      "bg-orange-100 text-orange-600",
-    indigo:      "bg-indigo-100 text-indigo-600",
-    rose:        "bg-rose-100 text-rose-600",
+    gray: "bg-gray-100 text-gray-600",
+    "gray-light": "border border-gray-200 bg-gray-50 text-gray-500",
+    red: "bg-red-100 text-red-600",
+    "red-light": "border border-red-200 bg-red-50 text-red-500",
+    amber: "bg-amber-100 text-amber-700",
+    emerald: "bg-emerald-100 text-emerald-700",
+    orange: "bg-orange-100 text-orange-600",
+    indigo: "bg-indigo-100 text-indigo-600",
+    rose: "bg-rose-100 text-rose-600",
   };
   return (
-    <span className={`text-xs px-3 py-1 rounded-full font-semibold ${tones[tone] ?? tones.gray}`}>
+    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tones[tone] ?? tones.gray}`}>
       {label}
     </span>
   );
 }
 
 function extractQNumber(qTitle: string): string {
-  const m = qTitle.match(/\[(?:간편)?(\d+)번질문\]/);
-  return m ? `Q${m[1]}` : "Q";
+  const exact = qTitle.match(/(\d+)\s*번\s*질문/);
+  if (exact) return `Q${exact[1]}`;
+  const any = qTitle.match(/\d+/);
+  return any ? `Q${any[0]}` : "Q";
 }
 
-// ── 전체 병력 요약 섹션 ──────────────────────────────────────
+function cleanQTitle(qTitle: string): string {
+  return qTitle.replace(/^\[.*?\]\s*/, "");
+}
+
 function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
   const [open, setOpen] = useState(true);
 
   if (!diseases.length) return null;
 
   return (
-    <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] mb-5 overflow-hidden">
+    <section className="mb-5 overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full px-5 py-4 flex items-center justify-between text-left"
+        className="flex w-full items-center justify-between px-5 py-4 text-left"
       >
-        <div className="flex items-center gap-2.5">
-          <svg className={`w-4 h-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-          <span className="text-sm font-bold text-gray-800">전체 병력 요약</span>
-          <span className="text-xs font-semibold text-gray-400">{diseases.length}개 질환</span>
+        <div>
+          <span className="text-sm font-extrabold text-gray-900">전체 병력 요약</span>
+          <span className="ml-2 text-xs font-semibold text-gray-400">{diseases.length}개 질환</span>
         </div>
+        <span className="text-xs font-bold text-gray-400">{open ? "접기" : "펼치기"}</span>
       </button>
 
       {open && (
@@ -141,10 +183,10 @@ function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="bg-gray-50 text-gray-400 font-semibold">
+                <tr className="bg-gray-50 text-gray-500">
                   <th className="px-4 py-2.5 text-left">코드</th>
                   <th className="px-4 py-2.5 text-left">질병명</th>
-                  <th className="px-4 py-2.5 text-left">최초~최근</th>
+                  <th className="px-4 py-2.5 text-left">진료기간</th>
                   <th className="px-4 py-2.5 text-center">통원</th>
                   <th className="px-4 py-2.5 text-center">입원</th>
                   <th className="px-4 py-2.5 text-center">수술</th>
@@ -154,10 +196,10 @@ function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {diseases.map((d, i) => (
-                  <tr key={i} className="hover:bg-gray-50/60">
+                  <tr key={`${d.code}-${i}`} className="hover:bg-gray-50/60">
                     <td className="px-4 py-2 font-mono text-gray-500">{d.display_code || d.code}</td>
-                    <td className="px-4 py-2 text-gray-800 font-medium max-w-[160px] truncate">{d.name || "—"}</td>
-                    <td className="px-4 py-2 text-gray-400 whitespace-nowrap">
+                    <td className="max-w-[180px] truncate px-4 py-2 font-semibold text-gray-800">{d.name || "-"}</td>
+                    <td className="whitespace-nowrap px-4 py-2 text-gray-500">
                       {d.first_date}
                       {d.latest_date && d.latest_date !== d.first_date ? ` ~ ${d.latest_date}` : ""}
                     </td>
@@ -166,27 +208,27 @@ function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
                         <span className={`font-semibold ${d.visit_count >= 7 ? "text-amber-600" : "text-gray-600"}`}>
                           {d.visit_count}회
                         </span>
-                      ) : <span className="text-gray-300">—</span>}
+                      ) : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-4 py-2 text-center">
                       {d.inpatient_days > 0 ? (
                         <span className="font-semibold text-red-500">{d.inpatient_days}일</span>
-                      ) : <span className="text-gray-300">—</span>}
+                      ) : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-4 py-2 text-center">
                       {d.surgery_count > 0 ? (
                         <span className="font-semibold text-red-500">{d.surgery_count}건</span>
-                      ) : <span className="text-gray-300">—</span>}
+                      ) : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-4 py-2 text-center">
                       {d.med_days > 0 ? (
                         <span className={`font-semibold ${d.med_days >= 30 ? "text-amber-600" : "text-emerald-600"}`}>
                           {d.med_days}일
                         </span>
-                      ) : <span className="text-gray-300">—</span>}
+                      ) : <span className="text-gray-300">-</span>}
                     </td>
-                    <td className="px-4 py-2 text-gray-400 max-w-[140px] truncate">
-                      {d.hospitals.slice(0, 2).join(", ") || "—"}
+                    <td className="max-w-[180px] truncate px-4 py-2 text-gray-500">
+                      {(d.hospitals || []).slice(0, 2).join(", ") || "-"}
                     </td>
                   </tr>
                 ))}
@@ -195,14 +237,12 @@ function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
-// ── 질환 카드 ────────────────────────────────────────────────
 function DiseaseCard({ item, qNum }: { item: SummaryItem; qNum: string }) {
-  const risk  = riskOf(item);
-  const sc    = RISK[risk];
+  const risk = riskOf(item);
   const surgN = item.surgery_count ?? item.surgeries?.length ?? 0;
   const procN = item.procedures?.length ?? 0;
   const suspN = item.surgery_suspected?.length ?? 0;
@@ -212,230 +252,213 @@ function DiseaseCard({ item, qNum }: { item: SummaryItem; qNum: string }) {
   const hasBottom = suspN > 0 || item.additional_test_hit || item.treatment_ongoing != null;
 
   return (
-    <div className={`px-5 py-4 border-l-4 ${sc.border}`}>
-      {/* 헤더: 질병명 + 코드 + Q배지 */}
-      <div className="flex items-start justify-between gap-3 mb-1">
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <span className="text-[15px] font-bold text-gray-900">
-            {item.name || "질병명 없음"}
-          </span>
+    <article className={`border-l-4 px-5 py-4 ${RISK[risk].border}`}>
+      <div className="mb-1 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="text-[15px] font-bold text-gray-900">{item.name || "질병명 없음"}</span>
           {item.code && (
-            <span className="font-mono text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded shrink-0">
+            <span className="shrink-0 rounded bg-gray-100 px-2 py-0.5 font-mono text-[11px] text-gray-500">
               {item.display_code || item.code}
             </span>
           )}
         </div>
-        <span className="text-[11px] font-bold bg-[#4F46E5] text-white px-2 py-0.5 rounded-md shrink-0">
+        <span className="shrink-0 rounded-[8px] bg-[#4F46E5] px-2 py-0.5 text-[11px] font-bold text-white">
           {qNum}
         </span>
       </div>
 
-      {/* 진료기간 + 최초진단 */}
-      <div className="text-xs text-gray-500 mb-2.5 space-y-0.5">
+      <div className="mb-2.5 space-y-0.5 text-xs text-gray-500">
         {period && (
           <div className="flex items-center gap-2">
-            <span className="text-gray-400 shrink-0">진료기간</span>
+            <span className="shrink-0 text-gray-400">진료기간</span>
             <span>{period}</span>
-            {item.last_hospital && (
-              <span className="text-gray-400 truncate">{item.last_hospital}</span>
-            )}
+            {item.last_hospital && <span className="truncate text-gray-400">{item.last_hospital}</span>}
           </div>
         )}
         {item.first_diagnosis_date && (
           <div className="flex items-center gap-2">
-            <span className="text-gray-400 shrink-0">최초진단</span>
+            <span className="shrink-0 text-gray-400">최초진단</span>
             <span>{item.first_diagnosis_date}</span>
-            {item.first_hospital && (
-              <span className="text-gray-400 truncate">{item.first_hospital}</span>
-            )}
+            {item.first_hospital && <span className="truncate text-gray-400">{item.first_hospital}</span>}
           </div>
         )}
       </div>
 
-      {/* 알릴의무 사유 */}
       {item.detail && (
-        <div className="text-[13px] font-medium mb-3 leading-relaxed text-gray-700">
-          <span className="mr-1">📋</span>{item.detail}
+        <div className="mb-3 text-[13px] font-medium leading-relaxed text-gray-700">
+          {item.detail}
         </div>
       )}
 
-      {/* 5대 통계 칩 */}
-      <div className="flex flex-wrap gap-2 mb-2">
-        <Chip label={`통원 ${item.visit ?? 0}회`}
-              tone={(item.visit ?? 0) >= 7 ? "amber" : "gray"} />
-        <Chip label={`입원 ${item.inpatient ?? 0}일`}
-              tone={(item.inpatient ?? 0) > 0 ? "red" : "gray"} />
-        <Chip label={`입원 ${item.inpatient_count ?? 0}회`}
-              tone={(item.inpatient_count ?? 0) > 0 ? "red-light" : "gray"} />
-        <Chip label={`수술 ${surgN}건`}
-              tone={surgN > 0 ? "red" : "gray"} />
-        <Chip label={`투약 ${item.med_days ?? 0}일`}
-              tone={(item.med_days ?? 0) >= 30 ? "amber"
-                    : (item.med_days ?? 0) > 0 ? "emerald" : "gray"} />
+      <div className="mb-2 flex flex-wrap gap-2">
+        <Chip label={`통원 ${item.visit ?? 0}회`} tone={(item.visit ?? 0) >= 7 ? "amber" : "gray"} />
+        <Chip label={`입원 ${item.inpatient ?? 0}일`} tone={(item.inpatient ?? 0) > 0 ? "red" : "gray"} />
+        <Chip label={`입원 ${item.inpatient_count ?? 0}회`} tone={(item.inpatient_count ?? 0) > 0 ? "red-light" : "gray"} />
+        <Chip label={`수술 ${surgN}건`} tone={surgN > 0 ? "red" : "gray"} />
+        <Chip
+          label={`투약 ${item.med_days ?? 0}일`}
+          tone={(item.med_days ?? 0) >= 30 ? "amber" : (item.med_days ?? 0) > 0 ? "emerald" : "gray"}
+        />
       </div>
 
-      {/* 보조 칩 */}
       <div className="flex flex-wrap gap-2">
         {procN > 0 && <Chip label={`시술 ${procN}건`} tone="orange" />}
-        {suspN > 0 && <Chip label={`⚠️ 수술 의심 ${suspN}건`} tone="gray-light" />}
-        {item.additional_test_hit && <Chip label="재검사" tone="indigo" />}
-        {item.treatment_ongoing === true  && <Chip label="치료 중" tone="rose" />}
+        {suspN > 0 && <Chip label={`수술 의심 ${suspN}건`} tone="gray-light" />}
+        {item.additional_test_hit && <Chip label="추가검사 의심" tone="indigo" />}
+        {item.treatment_ongoing === true && <Chip label="치료 중" tone="rose" />}
         {item.treatment_ongoing === false && <Chip label="종결" tone="emerald" />}
       </div>
 
-      {/* 하단 부가정보 */}
       {hasBottom && (
-        <div className="mt-3 pt-2.5 border-t border-gray-100 space-y-1 text-xs leading-relaxed">
+        <div className="mt-3 space-y-1 border-t border-gray-100 pt-2.5 text-xs leading-relaxed">
           {suspN > 0 && (
-            <p className="text-gray-400">
-              <span className="text-gray-300 mr-1.5">의심 행위</span>
+            <p className="text-gray-500">
+              <span className="mr-1.5 text-gray-400">의심 행위</span>
               {item.surgery_suspected!.slice(0, 3).join(", ")}
             </p>
           )}
           {item.additional_test_hit && item.additional_test_reason && (
-            <p className="text-indigo-500">
-              <span className="text-indigo-300 mr-1.5">재검사</span>
+            <p className="text-indigo-600">
+              <span className="mr-1.5 text-indigo-300">추가검사</span>
               {item.additional_test_reason}
             </p>
           )}
           {item.treatment_ongoing === true && item.treatment_ongoing_reason && (
-            <p className="text-rose-500">
-              <span className="text-rose-300 mr-1.5">치료 중</span>
+            <p className="text-rose-600">
+              <span className="mr-1.5 text-rose-300">치료 중</span>
               {item.treatment_ongoing_reason}
             </p>
           )}
           {item.treatment_ongoing === false && item.treatment_ongoing_reason && (
             <p className="text-emerald-600">
-              <span className="text-emerald-400 mr-1.5">종결</span>
+              <span className="mr-1.5 text-emerald-400">종결</span>
               {item.treatment_ongoing_reason}
             </p>
           )}
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
-// ── 고지사항 섹션 (상품별) ───────────────────────────────────
 function DisclosureSection({
-  reports, kakaoMsg, label,
+  reports,
+  memo,
+  label,
+  mode,
 }: {
   reports: Record<string, SummaryItem[]>;
-  kakaoMsg: string;
+  memo: string;
   label: string;
+  mode: AudienceMode;
 }) {
-  const [kakaoOpen, setKakaoOpen] = useState(false);
+  const [memoOpen, setMemoOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copy = modeCopy[mode];
+  const hasItems = Object.keys(reports).length > 0;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(kakaoMsg);
+    void navigator.clipboard.writeText(memo);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    window.setTimeout(() => setCopied(false), 2000);
   };
-
-  const hasItems = Object.keys(reports).length > 0;
 
   return (
     <div>
-      {/* 카카오 메시지 */}
-      {kakaoMsg && (
-        <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] mb-4 overflow-hidden">
-          <div className="px-5 py-4 flex items-center justify-between">
-            <button
-              onClick={() => setKakaoOpen(!kakaoOpen)}
-              className="flex items-center gap-2 text-left"
-            >
-              <svg className={`w-4 h-4 text-gray-400 transition-transform ${kakaoOpen ? "rotate-180" : ""}`}
-                fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-              <span className="text-sm font-bold text-gray-800">카카오톡 전송용 메시지</span>
+      {memo && (
+        <section className="mb-4 overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+          <div className="flex items-center justify-between gap-3 px-5 py-4">
+            <button onClick={() => setMemoOpen(!memoOpen)} className="text-left text-sm font-bold text-gray-800">
+              {copy.memoLabel}
+              <span className="ml-2 text-xs text-gray-400">{memoOpen ? "접기" : "펼치기"}</span>
             </button>
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-sm"
-              style={{ background: "#FEE500", color: "#191919" }}
+              className="rounded-[8px] bg-[#FEE500] px-4 py-2 text-sm font-bold text-[#191919]"
             >
-              <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-                <path d="M9 1C4.58 1 1 3.8 1 7.24c0 2.22 1.48 4.17 3.7 5.27l-.94 3.47c-.08.3.26.54.52.36L8.05 13.7c.31.03.63.05.95.05 4.42 0 8-2.8 8-6.24S13.42 1 9 1Z" fill="#191919" />
-              </svg>
-              {copied ? "복사 완료!" : "복사하기"}
+              {copied ? "복사 완료" : "복사하기"}
             </button>
           </div>
-          {kakaoOpen && (
-            <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed bg-gray-50 px-5 py-4">
-              {kakaoMsg}
+          {memoOpen && (
+            <pre className="whitespace-pre-wrap bg-gray-50 px-5 py-4 font-sans text-xs leading-relaxed text-gray-600">
+              {memo}
             </pre>
           )}
-        </div>
+        </section>
       )}
 
-      {/* 질환 카드 */}
       {hasItems ? (
         <div className="space-y-4">
           {Object.entries(reports).map(([qTitle, items]) => {
             const qNum = extractQNumber(qTitle);
-            const sectionTitle = qTitle.replace(/^\[.*?\]\s*/, "");
             return (
-              <div key={qTitle} className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] overflow-hidden">
-                <div className="px-5 py-3.5 flex items-center gap-2.5 border-b border-gray-100">
-                  <span className="text-xs font-bold bg-[#4F46E5] text-white px-2.5 py-1 rounded-md shrink-0">
+              <section key={qTitle} className="overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+                <div className="flex items-center gap-2.5 border-b border-gray-100 px-5 py-3.5">
+                  <span className="shrink-0 rounded-[8px] bg-[#4F46E5] px-2.5 py-1 text-xs font-bold text-white">
                     {qNum}
                   </span>
-                  <span className="text-sm font-bold text-gray-800">{sectionTitle}</span>
+                  <span className="text-sm font-bold text-gray-800">{cleanQTitle(qTitle)}</span>
                 </div>
                 <div className="divide-y divide-gray-50">
                   {items.map((item, idx) => (
-                    <DiseaseCard key={idx} item={item} qNum={qNum} />
+                    <DiseaseCard key={`${item.code}-${idx}`} item={item} qNum={qNum} />
                   ))}
                 </div>
-              </div>
+              </section>
             );
           })}
         </div>
       ) : (
-        <div className="bg-emerald-50 rounded-2xl p-8 text-center shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-          <div className="text-4xl mb-3">✅</div>
-          <p className="text-sm font-bold text-emerald-700">{label} 고지 대상 항목이 없습니다</p>
+        <div className="rounded-[8px] bg-emerald-50 p-8 text-center shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+          <p className="text-sm font-bold text-emerald-700">{label}</p>
         </div>
       )}
     </div>
   );
 }
 
-// ── 결과 뷰 ─────────────────────────────────────────────────
-function ResultView({ result }: { result: AnalyzeResult }) {
+function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMode }) {
   const [productTab, setProductTab] = useState<"standard" | "easy">("standard");
-
   const activeReports = productTab === "standard" ? result.standard_reports : result.easy_reports;
-  const activeKakao   = productTab === "standard" ? result.standard_kakao   : result.easy_kakao;
-  const activeLabel   = productTab === "standard" ? "건강체/표준체" : "간편심사";
-
-  const stdCount  = Object.values(result.standard_reports).reduce((s, arr) => s + arr.length, 0);
+  const activeMemo = productTab === "standard" ? result.standard_kakao : result.easy_kakao;
+  const activeLabel = productTab === "standard" ? "건강체/표준체" : "간편심사";
+  const stdCount = Object.values(result.standard_reports).reduce((s, arr) => s + arr.length, 0);
   const easyCount = Object.values(result.easy_reports).reduce((s, arr) => s + arr.length, 0);
+  const copy = modeCopy[mode];
 
   return (
     <div>
-      {/* 파싱 오류 */}
-      {result.parse_errors
-        .filter(e => e.includes("🔒") || e.includes("손상") || e.includes("비밀번호"))
-        .map((e, i) => (
-          <div key={i} className="bg-amber-50 rounded-xl p-3 mb-3 text-sm text-amber-700 font-semibold">{e}</div>
-        ))}
+      {(result.parse_errors || []).map((e, i) => (
+        <div key={`parse-${i}`} className="mb-3 rounded-[8px] bg-amber-50 p-3 text-sm font-semibold text-amber-700">
+          {e}
+        </div>
+      ))}
 
-      {/* 메리츠 간편 경고 */}
+      {(result.warnings || []).map((w, i) => (
+        <div key={`warning-${i}`} className="mb-3 rounded-[8px] bg-gray-50 p-3 text-sm text-gray-600">
+          {w}
+        </div>
+      ))}
+
       {result.meritz_easy_message && (
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 text-xs text-orange-800 whitespace-pre-wrap leading-relaxed">
+        <div className="mb-4 whitespace-pre-wrap rounded-[8px] border border-orange-200 bg-orange-50 p-4 text-xs leading-relaxed text-orange-800">
           {result.meritz_easy_message}
         </div>
       )}
 
-      {/* ① 전체 병력 요약 */}
+      <div className="mb-5 rounded-[8px] bg-white p-5 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+        <p className="text-xs font-bold text-[#4F46E5]">{copy.resultTitle}</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-4">
+          <Metric label="건강체 고지" value={`${stdCount}건`} tone={stdCount ? "text-amber-600" : "text-emerald-600"} />
+          <Metric label="간편심사 고지" value={`${easyCount}건`} tone={easyCount ? "text-amber-600" : "text-emerald-600"} />
+          <Metric label="전체 병력" value={`${result.all_disease_summary.length}개`} />
+          <Metric label="총 투약일" value={`${result.total_med_sum}일`} />
+        </div>
+      </div>
+
       <AllDiseaseSection diseases={result.all_disease_summary} />
 
-      {/* ② 상품별 고지사항 */}
-      <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] overflow-hidden mb-5">
-        {/* 탭 헤더 */}
+      <section className="mb-5 overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
         <div className="flex border-b border-gray-100">
           {(["standard", "easy"] as const).map((tab) => {
             const label = tab === "standard" ? "건강체/표준체" : "간편심사";
@@ -445,46 +468,86 @@ function ResultView({ result }: { result: AnalyzeResult }) {
               <button
                 key={tab}
                 onClick={() => setProductTab(tab)}
-                className={`flex-1 py-3.5 text-sm font-bold transition-all relative ${
-                  active
-                    ? "text-[#4F46E5]"
-                    : "text-gray-400 hover:text-gray-600"
+                className={`relative flex-1 py-3.5 text-sm font-bold transition-all ${
+                  active ? "text-[#4F46E5]" : "text-gray-400 hover:text-gray-600"
                 }`}
               >
                 {label}
                 {count > 0 && (
-                  <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                  <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs font-semibold ${
                     active ? "bg-indigo-100 text-indigo-600" : "bg-gray-100 text-gray-500"
-                  }`}>{count}</span>
+                  }`}>
+                    {count}
+                  </span>
                 )}
-                {active && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#4F46E5]" />
-                )}
+                {active && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#4F46E5]" />}
               </button>
             );
           })}
         </div>
 
-        {/* 탭 콘텐츠 */}
         <div className="p-4">
           <DisclosureSection
             reports={activeReports}
-            kakaoMsg={activeKakao}
-            label={activeLabel}
+            memo={activeMemo}
+            label={`${activeLabel} ${copy.emptyTitle}`}
+            mode={mode}
           />
         </div>
-      </div>
+      </section>
     </div>
   );
 }
 
-// ── 메인 ────────────────────────────────────────────────────
-export default function Disclosure() {
-  const [refDate, setRefDate]     = useState(() => new Date().toISOString().slice(0, 10));
+function Metric({ label, value, tone = "text-gray-900" }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="rounded-[8px] bg-gray-50 px-4 py-3">
+      <p className="text-xs font-semibold text-gray-400">{label}</p>
+      <p className={`mt-1 text-xl font-black ${tone}`}>{value}</p>
+    </div>
+  );
+}
+
+function ModeSwitch({ mode }: { mode: AudienceMode }) {
+  return (
+    <div className="mb-5 grid gap-3 md:grid-cols-2">
+      <Link
+        to="/check"
+        className={`rounded-[8px] border p-4 transition ${
+          mode === "customer"
+            ? "border-emerald-300 bg-emerald-50"
+            : "border-gray-200 bg-white hover:border-emerald-200"
+        }`}
+      >
+        <p className="text-sm font-extrabold text-gray-900">고객용</p>
+        <p className="mt-1 text-xs leading-5 text-gray-500">기존 가입 보험의 고지 누락 가능성을 점검합니다.</p>
+      </Link>
+      <Link
+        to="/disclosure?mode=agent"
+        className={`rounded-[8px] border p-4 transition ${
+          mode === "agent"
+            ? "border-indigo-300 bg-indigo-50"
+            : "border-gray-200 bg-white hover:border-indigo-200"
+        }`}
+      >
+        <p className="text-sm font-extrabold text-gray-900">설계사용</p>
+        <p className="mt-1 text-xs leading-5 text-gray-500">청약 전 알릴의무 필터와 상담 메시지를 만듭니다.</p>
+      </Link>
+    </div>
+  );
+}
+
+export default function Disclosure({ initialMode = "agent" }: { initialMode?: AudienceMode }) {
+  const [searchParams] = useSearchParams();
+  const requestedMode = searchParams.get("mode");
+  const mode: AudienceMode = requestedMode === "customer" || requestedMode === "agent" ? requestedMode : initialMode;
+  const copy = modeCopy[mode];
+
+  const [refDate, setRefDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [birthdate, setBirthdate] = useState("");
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState("");
-  const [result, setResult]       = useState<AnalyzeResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<AnalyzeResult | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -493,8 +556,14 @@ export default function Disclosure() {
 
   const analyze = async () => {
     const files = fileRef.current?.files;
-    if (!files?.length) { setError("PDF 파일을 업로드해 주세요."); return; }
-    setLoading(true); setError(""); setResult(null);
+    if (!files?.length) {
+      setError("PDF 파일을 업로드해 주세요.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setResult(null);
 
     const form = new FormData();
     for (const f of files) form.append("files", f);
@@ -513,10 +582,11 @@ export default function Disclosure() {
       }
       setResult(await res.json());
     } catch (e: unknown) {
-      if (e instanceof TypeError && e.message.includes("fetch"))
+      if (e instanceof TypeError && e.message.includes("fetch")) {
         setError(connectionErrorMessage(API_BASE));
-      else
-        setError(e instanceof Error ? e.message : "알 수 없는 오류");
+      } else {
+        setError(e instanceof Error ? e.message : "알 수 없는 오류가 발생했습니다.");
+      }
     } finally {
       setLoading(false);
     }
@@ -524,83 +594,85 @@ export default function Disclosure() {
 
   return (
     <div>
-      {/* 헤더 */}
+      <ModeSwitch mode={mode} />
+
       <div className="mb-6">
-        <p className="text-xs font-bold text-[#4F46E5] tracking-wider mb-1">AI 고지 분석</p>
-        <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">알릴의무 필터</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          심평원 진료 PDF를 업로드하면 AI가 고지 의무 항목을 자동으로 추출합니다.
-        </p>
+        <p className="mb-1 text-xs font-bold tracking-wider text-[#4F46E5]">{copy.badge}</p>
+        <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">{copy.title}</h1>
+        <p className="mt-1 text-sm leading-6 text-gray-500 break-keep">{copy.subtitle}</p>
       </div>
 
-      {/* 설정 카드 */}
-      <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] p-6 mb-5">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <section className="mb-5 rounded-[8px] bg-white p-6 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">기준일 (청약예정일)</label>
+            <label className="mb-2 block text-sm font-semibold text-gray-700">{copy.dateLabel}</label>
             <input
               type="date"
               value={refDate}
               onChange={(e) => setRefDate(e.target.value)}
-              className="w-full bg-gray-50 rounded-xl px-4 py-2.5 text-sm text-gray-800 focus:ring-2 focus:ring-[#4F46E5]/30 focus:outline-none"
+              className="w-full rounded-[8px] bg-gray-50 px-4 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/30"
             />
+            <p className="mt-2 text-xs leading-5 text-gray-400">{copy.dateHelp}</p>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              생년월일 <span className="text-gray-300 font-normal">(선택)</span>
+            <label className="mb-2 block text-sm font-semibold text-gray-700">
+              PDF 비밀번호 <span className="font-normal text-gray-300">선택</span>
             </label>
             <input
               type="text"
               placeholder="예: 19900101"
               value={birthdate}
               onChange={(e) => setBirthdate(e.target.value)}
-              className="w-full bg-gray-50 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:ring-2 focus:ring-[#4F46E5]/30 focus:outline-none"
+              className="w-full rounded-[8px] bg-gray-50 px-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/30"
             />
+            <p className="mt-2 text-xs leading-5 text-gray-400">암호화 PDF라면 생년월일 8자리를 입력해 주세요.</p>
           </div>
         </div>
 
-        <div className="mt-5 bg-indigo-50 border-2 border-dashed border-indigo-200 rounded-2xl p-6 text-center hover:border-indigo-400 hover:bg-indigo-100/50 transition-all duration-200">
+        <div className="mt-5 rounded-[8px] border-2 border-dashed border-indigo-200 bg-indigo-50 p-6 text-center transition hover:border-indigo-400">
           <input
             ref={fileRef}
             type="file"
             accept=".pdf"
             multiple
-            className="block w-full text-sm text-gray-600 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-[#4F46E5] file:text-white file:shadow-md hover:file:bg-[#4338CA] hover:file:shadow-lg hover:file:scale-105 file:transition-all file:duration-200 cursor-pointer"
+            className="block w-full cursor-pointer text-sm text-gray-600 file:mr-4 file:rounded-[8px] file:border-0 file:bg-[#4F46E5] file:px-5 file:py-2.5 file:text-sm file:font-bold file:text-white hover:file:bg-[#4338CA]"
           />
-          <p className="text-xs text-gray-500 mt-3">
-            건강e음 기본진료·세부진료·처방조제 PDF (1개 이상)
-          </p>
+          <p className="mt-3 text-xs text-gray-500">{copy.uploadHelp}</p>
         </div>
 
         <button
           onClick={analyze}
           disabled={loading}
-          className="w-full mt-5 py-3 bg-[#4F46E5] hover:bg-[#4338CA] disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-colors shadow-[0_2px_8px_rgba(79,70,229,0.3)]"
+          className="mt-5 w-full rounded-[8px] bg-[#4F46E5] py-3 text-sm font-bold text-white shadow-[0_2px_8px_rgba(79,70,229,0.3)] transition-colors hover:bg-[#4338CA] disabled:opacity-50"
         >
-          {loading ? "분석 중..." : "AI 고지사항 추출"}
+          {loading ? "분석 중..." : copy.button}
         </button>
-      </div>
+      </section>
 
-      {/* 에러 */}
-      {error && (
-        <div className="bg-red-50 rounded-2xl p-4 mb-5 text-sm text-red-600 font-semibold">{error}</div>
+      {mode === "customer" && !result && (
+        <section className="mb-5 rounded-[8px] border border-emerald-100 bg-emerald-50 p-5">
+          <p className="text-sm font-extrabold text-emerald-800">고객 안내 포인트</p>
+          <p className="mt-2 text-xs leading-6 text-emerald-700 break-keep">
+            이 점검은 보험 가입 권유가 아니라 기존 보험의 고지 누락 가능성을 미리 확인하는 절차입니다.
+            분석 결과는 최종 법률 판단이 아니며, 실제 청약서 질문과 보험사 심사 기준에 맞춰 한 번 더 대조해야 합니다.
+          </p>
+        </section>
       )}
 
-      {/* 결과 */}
-      {result && <ResultView result={result} />}
+      {error && (
+        <div className="mb-5 rounded-[8px] bg-red-50 p-4 text-sm font-semibold text-red-600">{error}</div>
+      )}
 
-      {/* 빈 상태 */}
+      {result && <ResultView result={result} mode={mode} />}
+
       {!result && !loading && !error && (
-        <div className="text-center py-16 bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-          <div className="text-5xl mb-4">📂</div>
-          <div className="text-sm font-bold text-gray-700 mb-1">심평원 진료자료 PDF를 업로드하세요</div>
-          <div className="text-xs text-gray-400 leading-relaxed">
-            건강e음에서 기본진료·세부진료·처방조제 3종을 발급받아 올려주세요.
-            <br />
-            1개만 올려도 분석 가능합니다.
-          </div>
-        </div>
+        <section className="rounded-[8px] bg-white p-8 text-center shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+          <p className="text-sm font-bold text-gray-800">심평원 진료자료 PDF를 업로드해 주세요.</p>
+          <p className="mt-2 text-xs leading-6 text-gray-400 break-keep">
+            기본진료, 세부진료, 처방조제 3종을 함께 올리면 통원, 입원, 수술, 투약 기록을 더 정확하게 교차검증할 수 있습니다.
+          </p>
+        </section>
       )}
     </div>
   );

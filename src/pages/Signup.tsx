@@ -24,19 +24,15 @@ export default function Signup() {
 
   if (done) {
     return (
-      <div className="min-h-screen bg-[#F8F9FC] flex items-center justify-center px-4">
+      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FC] px-4">
         <div className="w-full max-w-sm text-center">
-          <div className="text-4xl mb-4">📧</div>
-          <h2 className="text-lg font-extrabold text-gray-900 mb-2">이메일을 확인해 주세요</h2>
-          <p className="text-sm text-gray-400 mb-6">
-            {email}으로 인증 메일을 보냈습니다.
+          <h2 className="mb-2 text-lg font-extrabold text-gray-900">이메일을 확인해 주세요</h2>
+          <p className="mb-6 text-sm leading-6 text-gray-400">
+            {email} 주소로 인증 메일을 보냈습니다.
             <br />
-            메일의 링크를 클릭하면 가입이 완료됩니다.
+            메일의 링크를 누르면 가입이 완료됩니다.
           </p>
-          <Link
-            to="/login"
-            className="text-sm font-bold text-[#4F46E5] hover:underline"
-          >
+          <Link to="/login" className="text-sm font-bold text-[#4F46E5] hover:underline">
             로그인으로 돌아가기
           </Link>
         </div>
@@ -45,13 +41,13 @@ export default function Signup() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F9FC] flex items-center justify-center px-4">
+    <div className="flex min-h-screen items-center justify-center bg-[#F8F9FC] px-4">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-10">
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">
+        <div className="mb-10 text-center">
+          <h1 className="text-3xl font-black tracking-tight text-gray-900">
             SUR<span className="text-[#4F46E5]">IT</span>
           </h1>
-          <p className="text-sm text-gray-400 mt-2">회원가입</p>
+          <p className="mt-2 text-sm text-gray-400">설계사용 계정 만들기</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -61,32 +57,32 @@ export default function Signup() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="w-full bg-white rounded-xl px-4 py-3 text-sm text-gray-800 placeholder:text-gray-300 shadow-[0_1px_3px_rgba(0,0,0,0.06)] focus:ring-2 focus:ring-[#4F46E5]/30 focus:outline-none"
+            className="w-full rounded-[8px] bg-white px-4 py-3 text-sm text-gray-800 shadow-[0_1px_3px_rgba(0,0,0,0.06)] placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/30"
           />
           <input
             type="password"
-            placeholder="비밀번호 (6자 이상)"
+            placeholder="비밀번호 6자 이상"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={6}
-            className="w-full bg-white rounded-xl px-4 py-3 text-sm text-gray-800 placeholder:text-gray-300 shadow-[0_1px_3px_rgba(0,0,0,0.06)] focus:ring-2 focus:ring-[#4F46E5]/30 focus:outline-none"
+            className="w-full rounded-[8px] bg-white px-4 py-3 text-sm text-gray-800 shadow-[0_1px_3px_rgba(0,0,0,0.06)] placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/30"
           />
 
-          {error && <p className="text-xs text-red-500 font-semibold">{error}</p>}
+          {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-[#4F46E5] hover:bg-[#4338CA] disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-colors shadow-[0_2px_8px_rgba(79,70,229,0.3)]"
+            className="w-full rounded-[8px] bg-[#4F46E5] py-3 text-sm font-bold text-white shadow-[0_2px_8px_rgba(79,70,229,0.3)] transition-colors hover:bg-[#4338CA] disabled:opacity-50"
           >
             {loading ? "가입 중..." : "회원가입"}
           </button>
         </form>
 
-        <p className="text-center text-xs text-gray-400 mt-6">
-          이미 계정이 있으신가요?{" "}
-          <Link to="/login" className="text-[#4F46E5] font-bold hover:underline">
+        <p className="mt-6 text-center text-xs text-gray-400">
+          이미 계정이 있나요?{" "}
+          <Link to="/login" className="font-bold text-[#4F46E5] hover:underline">
             로그인
           </Link>
         </p>
