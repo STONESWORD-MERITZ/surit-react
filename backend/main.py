@@ -1,35 +1,101 @@
 import asyncio
+import logging
 import os
 import re
 import time
 from datetime import date
-
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
+
+from fastapi import FastAPI, File, Request, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from analyzer import run_analysis, AnalysisError
 
+# ── 서비스 환경 ──────────────────────────────────────────────────────────────
+SENTRY_DSN  = os.environ.get("SENTRY_DSN", "")
+SERVICE_ENV = os.environ.get("SERVICE_ENV", "development")
+
+
+def _sanitize_event(event, hint=None):
+    """Sentry 전송 전 PDF 바이너리·진료 데이터·이메일 등 민감정보 제거"""
+    try:
+        req = event.get("request") or {}
+        req.pop("data", None)
+        req.pop("cookies", None)
+        headers = req.get("headers") or {}
+        for k in list(headers.keys()):
+            if k.lower() in ("authorization", "cookie", "x-api-key"):
+                headers[k] = "[Filtered]"
+        for ctx in (event.get("contexts") or {}).values():
+            if isinstance(ctx, dict):
+                for big in ("raw_response", "parsed_records", "summary_reports"):
+                    ctx.pop(big, None)
+    except Exception:
+        pass
+    return event
+
+
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=SERVICE_ENV,
+        traces_sample_rate=0.1,
+        profiles_sample_rate=0.0,
+        send_default_pii=False,
+        integrations=[
+            FastApiIntegration(),
+            LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
+        ],
+        before_send=_sanitize_event,
+    )
+
+# ── FastAPI 앱 ───────────────────────────────────────────────────────────────
 app = FastAPI(title="SURIT React Backend", version="1.0.0")
+
+# ── Rate Limiter ─────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── CORS ─────────────────────────────────────────────────────────────────────
+_default_origins = "https://surit-react.vercel.app,http://localhost:5173,http://localhost:3000"
+ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", _default_origins).split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
+# ── 로깅 설정 ────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("surit")
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+# ── 상수 ─────────────────────────────────────────────────────────────────────
 PRODUCT_TYPE_MAP = {
     "standard": "건강체/표준체 (일반심사)",
     "easy":     "간편심사 (유병자 3-5-5 기준)",
 }
 
 
+# ── 내부 유틸 ────────────────────────────────────────────────────────────────
 class _PDFFile:
     def __init__(self, name: str, data: bytes):
         self.name = name
@@ -138,13 +204,25 @@ def _serialize_reports(summary_reports: dict) -> dict:
     return out
 
 
+# ── 엔드포인트 ───────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    google_key_ok = bool(os.environ.get("GOOGLE_API_KEY"))
+    return {
+        "status": "ok",
+        "env": SERVICE_ENV,
+        "deps": {
+            "google_api_key": google_key_ok,
+            "sentry": bool(SENTRY_DSN),
+        },
+        "version": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "dev")[:7],
+    }
 
 
 @app.post("/api/analyze")
+@limiter.limit("5/minute,30/hour")
 async def analyze(
+    request: Request,
     files: list[UploadFile] = File(..., description="심평원 진료 PDF"),
     reference_date: str = Form(..., description="YYYY-MM-DD"),
     birthdate_pw: str = Form(default="", description="PDF 비밀번호용 생년월일"),
@@ -152,14 +230,22 @@ async def analyze(
     try:
         ref_date = date.fromisoformat(reference_date)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"reference_date는 YYYY-MM-DD 형식이어야 합니다.")
+        raise HTTPException(status_code=400, detail="reference_date는 YYYY-MM-DD 형식이어야 합니다.")
 
     if not files:
         raise HTTPException(status_code=400, detail="PDF 파일을 1개 이상 업로드해 주세요.")
 
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
-        raise HTTPException(status_code=500, detail="서버에 GOOGLE_API_KEY가 설정되지 않았습니다.")
+        raise HTTPException(
+            status_code=503,
+            detail="서비스 점검 중입니다. 잠시 후 다시 시도해 주세요.",
+        )
+
+    logger.info(
+        "analyze start: ref_date=%s files=%d",
+        reference_date, len(files),
+    )
 
     async def _read(f):
         data = await f.read()
@@ -179,16 +265,27 @@ async def analyze(
             api_key=api_key,
         )
     except AnalysisError as e:
+        # 사용자 친화 메시지 그대로 전달 (parse_single_pdf 에서 이미 정제됨)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"분석 중 오류: {e}")
+        # 내부 오류는 사용자에게 디테일 노출 금지. 서버 로그·Sentry 에는 남김.
+        logger.exception("analyze endpoint failed: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="서버에서 분석을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.",
+        )
 
-    std_reports  = result["standard_reports"]
-    easy_reports = result["easy_reports"]
+    std_reports   = result["standard_reports"]
+    easy_reports  = result["easy_reports"]
     flagged_codes = result["flagged_codes"]
-    today = result["analysis_today"]
-    ai_res = result["ai_result"]
-    meritz = result.get("meritz_easy", {})
+    today         = result["analysis_today"]
+    ai_res        = result["ai_result"]
+    meritz        = result.get("meritz_easy", {})
+
+    logger.info(
+        "analyze done: flagged=%d total_q=%d",
+        len(flagged_codes), len(std_reports),
+    )
 
     std_kakao  = _build_kakao_message(PRODUCT_TYPE_MAP["standard"], today, std_reports)
     easy_kakao = _build_kakao_message(PRODUCT_TYPE_MAP["easy"],     today, easy_reports)

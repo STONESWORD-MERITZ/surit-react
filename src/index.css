@@ -10,14 +10,51 @@
   --color-text-sub: #6B7280;
 }
 
-body {
+html, body {
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "ss03";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   margin: 0;
-  font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif;
   background: #F8F9FC;
   color: #1F2937;
-  -webkit-font-smoothing: antialiased;
 }
 
 * {
   box-sizing: border-box;
+}
+
+@media print {
+  *,
+  *::before,
+  *::after {
+    box-shadow: none !important;
+    -webkit-print-color-adjust: economy;
+    print-color-adjust: economy;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+
+  header,
+  footer,
+  nav,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  .rounded-2xl, .rounded-xl, .rounded-lg {
+    border-radius: 6px !important;
+  }
+
+  .surit-result-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }

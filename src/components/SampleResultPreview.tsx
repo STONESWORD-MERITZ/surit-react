@@ -1,0 +1,61 @@
+export default function SampleResultPreview() {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-[0_10px_40px_rgba(15,23,42,0.06)]">
+      {/* 상단 헤더 */}
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+          분석 결과 미리보기
+        </p>
+        <span className="text-[11px] text-gray-400">예시 데이터</span>
+      </div>
+
+      {/* 요약 */}
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="rounded-xl bg-gray-50 px-3 py-2">
+          <p className="text-[10px] font-medium text-gray-400">고지 질환</p>
+          <p className="text-lg font-extrabold text-gray-900">2<span className="text-xs font-semibold text-gray-400 ml-0.5">건</span></p>
+        </div>
+        <div className="rounded-xl bg-gray-50 px-3 py-2">
+          <p className="text-[10px] font-medium text-gray-400">해당 문항</p>
+          <p className="text-lg font-extrabold text-gray-900">Q3</p>
+        </div>
+        <div className="rounded-xl bg-emerald-50 px-3 py-2">
+          <p className="text-[10px] font-medium text-emerald-600">추천 심사</p>
+          <p className="text-sm font-extrabold text-emerald-700">건강체 가능</p>
+        </div>
+      </div>
+
+      {/* 질환 카드 1 */}
+      <div className="rounded-xl border border-gray-200 px-4 py-3 mb-2">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[13px] font-bold text-gray-900 truncate">만성 단순치주염</span>
+            <span className="font-mono text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">K05.30</span>
+          </div>
+          <span className="text-[10px] font-bold text-white bg-indigo-600 px-1.5 py-0.5 rounded">Q3</span>
+        </div>
+        <p className="text-[11px] text-gray-500 mb-2">2021-05-25 ~ 2026-01-07</p>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">통원 30회</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-semibold">입원 0일</span>
+        </div>
+      </div>
+
+      {/* 질환 카드 2 */}
+      <div className="rounded-xl border border-gray-200 px-4 py-3">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[13px] font-bold text-gray-900 truncate">자궁체부의 용종</span>
+            <span className="font-mono text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">N84.0</span>
+          </div>
+          <span className="text-[10px] font-bold text-white bg-indigo-600 px-1.5 py-0.5 rounded">Q3</span>
+        </div>
+        <p className="text-[11px] text-gray-500 mb-2">2022-07-11 ~ 2022-07-18</p>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-600 font-semibold">입원 1일·1회</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-semibold">통원 1회</span>
+        </div>
+      </div>
+    </div>
+  );
+}

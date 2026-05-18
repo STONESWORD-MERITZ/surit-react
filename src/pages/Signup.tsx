@@ -8,9 +8,13 @@ export default function Signup() {
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
+  const [agreePrivacy, setAgreePrivacy] = useState(false);
+  const [agreeMedical, setAgreeMedical] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!agreeTerms || !agreePrivacy || !agreeMedical) return;
     setError("");
     setLoading(true);
     const { error } = await supabase.auth.signUp({ email, password });
@@ -69,11 +73,50 @@ export default function Signup() {
             className="w-full rounded-[8px] bg-white px-4 py-3 text-sm text-gray-800 shadow-[0_1px_3px_rgba(0,0,0,0.06)] placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/30"
           />
 
+          <div className="mt-4 space-y-2 text-sm">
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                required
+                checked={agreeTerms}
+                onChange={(e) => setAgreeTerms(e.target.checked)}
+                className="mt-0.5 shrink-0"
+              />
+              <span>
+                <a href="/terms" target="_blank" className="font-semibold underline">이용약관</a>에 동의합니다 (필수)
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                required
+                checked={agreePrivacy}
+                onChange={(e) => setAgreePrivacy(e.target.checked)}
+                className="mt-0.5 shrink-0"
+              />
+              <span>
+                <a href="/privacy" target="_blank" className="font-semibold underline">개인정보처리방침</a>에 동의합니다 (필수)
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                required
+                checked={agreeMedical}
+                onChange={(e) => setAgreeMedical(e.target.checked)}
+                className="mt-0.5 shrink-0"
+              />
+              <span>
+                민감정보(건강·의료정보) 처리에 동의합니다. 동의하지 않을 경우 분석 기능 이용이 제한됩니다. (필수)
+              </span>
+            </label>
+          </div>
+
           {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !agreeTerms || !agreePrivacy || !agreeMedical}
             className="w-full rounded-[8px] bg-[#4F46E5] py-3 text-sm font-bold text-white shadow-[0_2px_8px_rgba(79,70,229,0.3)] transition-colors hover:bg-[#4338CA] disabled:opacity-50"
           >
             {loading ? "가입 중..." : "회원가입"}

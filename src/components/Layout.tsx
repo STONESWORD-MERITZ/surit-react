@@ -1,43 +1,65 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../lib/auth-context";
+import Footer from "./Footer";
 
 export default function Layout() {
   const { user, signOut } = useAuth();
 
-  const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `px-4 h-14 flex items-center text-sm font-semibold transition-colors whitespace-nowrap ${
-      isActive
-        ? "text-[#4F46E5] font-bold"
-        : "text-gray-500 hover:text-gray-800"
-    }`;
-
   return (
     <div className="min-h-screen bg-[#F8F9FC]">
-      <nav className="sticky top-0 z-50 border-b border-gray-100 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center px-4">
-          <NavLink
+      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+          <Link
             to="/"
-            className="flex h-14 items-center px-3 text-base font-black tracking-tight text-gray-950 hover:text-[#4F46E5]"
+            className="text-lg font-extrabold tracking-tight text-gray-950 hover:text-indigo-600 transition-colors"
           >
-            SUR<span className="text-[#4F46E5]">IT</span>
-          </NavLink>
-          <NavLink to="/check" className={linkClass}>
-            고객 점검
-          </NavLink>
-          <NavLink to="/disclosure?mode=agent" className={linkClass}>
-            설계사 필터
-          </NavLink>
-          <NavLink to="/before-after" className={linkClass}>
-            보장분석
-          </NavLink>
+            SUR<span className="text-indigo-600">IT</span>
+          </Link>
 
-          <div className="ml-auto flex items-center gap-3">
+          <nav className="flex items-center gap-5 text-sm font-semibold text-gray-600">
+            <NavLink
+              to="/check"
+              className={({ isActive }) =>
+                isActive ? "text-indigo-600" : "hover:text-gray-900 transition-colors"
+              }
+            >
+              고객 점검
+            </NavLink>
+            <NavLink
+              to="/disclosure"
+              className={({ isActive }) =>
+                isActive ? "text-indigo-600" : "hover:text-gray-900 transition-colors"
+              }
+            >
+              설계사 필터
+            </NavLink>
+            <NavLink
+              to="/before-after"
+              className={({ isActive }) =>
+                isActive ? "text-indigo-600" : "hover:text-gray-900 transition-colors"
+              }
+            >
+              보장분석
+            </NavLink>
+          </nav>
+
+          <div className="flex items-center gap-3 text-sm">
+            {user && (
+              <NavLink
+                to="/history"
+                className={({ isActive }) =>
+                  isActive ? "text-indigo-600 font-semibold text-sm" : "text-sm font-semibold text-gray-600 hover:text-gray-900 transition-colors"
+                }
+              >
+                내 점검 기록
+              </NavLink>
+            )}
             {user ? (
               <>
                 <span className="hidden text-xs text-gray-400 sm:inline">{user.email}</span>
                 <button
                   onClick={signOut}
-                  className="rounded-[8px] bg-gray-100 px-4 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200"
+                  className="rounded-lg bg-gray-100 px-4 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200"
                 >
                   로그아웃
                 </button>
@@ -45,18 +67,19 @@ export default function Layout() {
             ) : (
               <NavLink
                 to="/login"
-                className="rounded-[8px] bg-[#4F46E5] px-4 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#4338CA]"
+                className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-bold text-white transition-colors hover:bg-indigo-700"
               >
                 로그인
               </NavLink>
             )}
           </div>
         </div>
-      </nav>
+      </header>
 
       <main className="mx-auto max-w-6xl px-5 py-8">
         <Outlet />
       </main>
+      <Footer />
     </div>
   );
 }
