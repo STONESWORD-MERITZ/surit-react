@@ -161,7 +161,7 @@ function cleanQTitle(qTitle: string): string {
 }
 
 function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   if (!diseases.length) return null;
 
@@ -542,6 +542,69 @@ function ModeSwitch({ mode }: { mode: AudienceMode }) {
   );
 }
 
+const tutorialSteps = [
+  {
+    title: "설계사용 또는 고객용 선택",
+    body: "청약 전 상담은 설계사용, 기존 보험 점검은 고객용에서 시작합니다.",
+  },
+  {
+    title: "청약 예정일 입력",
+    body: "고지 기간 계산의 기준일입니다. 기존 보험 점검은 실제 가입일을 넣어 주세요.",
+  },
+  {
+    title: "PDF 첨부",
+    body: "기본진료, 세부진료, 처방조제 PDF를 올리고 암호가 있으면 비밀번호를 입력합니다.",
+  },
+  {
+    title: "병력 요약 펼치기 또는 접기",
+    body: "전체 병력은 처음에는 접혀 있습니다. 필요할 때 펼쳐 원자료 집계를 확인합니다.",
+  },
+  {
+    title: "카카오톡 복사하기",
+    body: "상품 기준별 고지 메시지를 복사해 고객 안내나 내부 검토에 활용합니다.",
+  },
+  {
+    title: "하단 병력 확인하기",
+    body: "질병별 카드에서 통원, 입원, 수술, 투약, 추가검사 의심 내용을 최종 확인합니다.",
+  },
+];
+
+function TutorialGuide() {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <section className="mb-5 overflow-hidden rounded-[8px] border border-indigo-100 bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+      >
+        <div>
+          <p className="text-xs font-bold tracking-wider text-[#4F46E5]">STEP BY STEP</p>
+          <h2 className="mt-1 text-sm font-extrabold text-gray-900">처음 이용하는 순서</h2>
+        </div>
+        <span className="shrink-0 text-xs font-bold text-gray-400">{open ? "접기" : "펼치기"}</span>
+      </button>
+
+      {open && (
+        <div className="grid gap-2 border-t border-gray-100 p-4 md:grid-cols-3">
+          {tutorialSteps.map((step, index) => (
+            <div key={step.title} className="rounded-[8px] bg-gray-50 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#4F46E5] text-[11px] font-black text-white">
+                  {index + 1}
+                </span>
+                <p className="text-sm font-extrabold text-gray-900">{step.title}</p>
+              </div>
+              <p className="text-xs leading-5 text-gray-500 break-keep">{step.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function Disclosure({ initialMode = "agent" }: { initialMode?: AudienceMode }) {
   const [searchParams] = useSearchParams();
   const requestedMode = searchParams.get("mode");
@@ -600,6 +663,7 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
   return (
     <div>
       <ModeSwitch mode={mode} />
+      <TutorialGuide />
 
       <div className="mb-6">
         <p className="mb-1 text-xs font-bold tracking-wider text-[#4F46E5]">{copy.badge}</p>

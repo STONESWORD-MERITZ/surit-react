@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import type { DiseaseSummary } from "../../types/disclosure";
 
 function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   if (!diseases.length) return null;
 
