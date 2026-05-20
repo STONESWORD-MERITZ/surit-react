@@ -73,6 +73,27 @@ type AnalyzeResult = {
 
 type Risk = "red" | "orange" | "gray" | "yellow" | "green";
 type TourPhase = "pre" | "post";
+
+const TOUR_STORAGE_KEY = "surit_tour_seen_v1";
+function readTourSeen(): { pre: boolean; post: boolean } {
+  if (typeof window === "undefined") return { pre: false, post: false };
+  try {
+    const raw = window.localStorage.getItem(TOUR_STORAGE_KEY);
+    if (!raw) return { pre: false, post: false };
+    const v = JSON.parse(raw);
+    return { pre: !!v.pre, post: !!v.post };
+  } catch {
+    return { pre: false, post: false };
+  }
+}
+function markTourSeen(phase: "pre" | "post") {
+  if (typeof window === "undefined") return;
+  try {
+    const cur = readTourSeen();
+    cur[phase] = true;
+    window.localStorage.setItem(TOUR_STORAGE_KEY, JSON.stringify(cur));
+  } catch { /* localStorage 비활성 환경 무시 */ }
+}
 type TourStep = {
   target: string;
   title: string;
@@ -706,7 +727,7 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<AnalyzeResult | null>(null);
-  const [tourPhase, setTourPhase] = useState<TourPhase | null>("pre");
+  const [tourPhase, setTourPhase] = useState<TourPhase | null>(() => (readTourSeen().pre ? null : "pre"));
   const [tourIndex, setTourIndex] = useState(0);
   const [postTourShown, setPostTourShown] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -719,6 +740,7 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
     if (!tourPhase) return;
     const steps = tourPhase === "pre" ? preTourSteps : postTourSteps;
     if (tourIndex >= steps.length - 1) {
+      markTourSeen(tourPhase);
       setTourPhase(null);
       return;
     }
@@ -726,6 +748,7 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
   };
 
   const handleTourSkip = () => {
+    if (tourPhase) markTourSeen(tourPhase);
     setTourPhase(null);
   };
 
@@ -735,6 +758,7 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
   };
 
   const showPostTour = () => {
+    if (readTourSeen().post) return;
     setTourPhase("post");
     setTourIndex(0);
     setPostTourShown(true);
