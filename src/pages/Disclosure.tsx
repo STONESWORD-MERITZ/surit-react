@@ -370,9 +370,9 @@ function DisclosureSection({
   };
 
   return (
-    <div data-tour="copy">
+    <div>
       {memo && (
-        <section className="mb-4 overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+        <section data-tour="copy" className="mb-4 overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
           <div className="flex items-center justify-between gap-3 px-5 py-4">
             <button onClick={() => setMemoOpen(!memoOpen)} className="text-left text-sm font-bold text-gray-800">
               {copy.memoLabel}
