@@ -433,11 +433,7 @@ def _max_presc(med_dict, since_dt):
             values.extend(int(x or 0) for x in v.values())
         else:
             values.append(int(v or 0))
-    if not values:
-        return 0
-    if any(isinstance(v, dict) for v in med_dict.values()):
-        return sum(values)
-    return max(values)
+    return max(values) if values else 0
 
 
 def is_simple_q3_allowed(code: str) -> bool:

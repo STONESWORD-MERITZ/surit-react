@@ -162,7 +162,7 @@ def _build_reports_for_product(merged_items, disease_stats, product_type, d3m, d
             ds_inpatient_days  = sum(_ds_inp_map.get(d, 1) for d in _ds_inp_dates) if _ds_inp_dates else 0
             ds_inpatient_count = len(_ds_inp_dates)
             ds_visit_count     = _visit_count_in_range(_ds, since_dt)
-            ds_med_days        = _max_presc(_ds.get("med_dates_pharma_episode") or _ds.get("med_dates_pharma", {}), since_dt)
+            ds_med_days        = _max_presc(_ds.get("med_dates_pharma", {}), since_dt)
         else:
             dates_sorted       = sorted([d for d in m["dates"] if d])
             first_date         = dates_sorted[0]  if dates_sorted else ""
@@ -274,7 +274,7 @@ def _build_all_disease_summary(disease_stats):
             "inpatient_days":  inpatient_days,
             "inpatient_periods": _inpatient_periods_in_range(s, datetime.min),
             "surgery_count":   len(s.get("surgery_dates", set())),
-            "med_days":        _max_presc(s.get("med_dates_pharma_episode") or s.get("med_dates_pharma", {}), datetime.min),
+            "med_days":        _max_presc(s.get("med_dates_pharma", {}), datetime.min),
             "hospitals":       sorted(s.get("hospitals", set())),
         })
 

@@ -52,6 +52,21 @@ def test_pharma_prescription_outpatient_passes():
     assert any("베포리진정" in s.get("drug_names_in_90", set()) for s in pharma_groups)
 
 
+def test_med_days_takes_max_not_sum():
+    """동일 질병 여러 처방 → 합산 아닌 최대값"""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pipeline"))
+    from pipeline.helpers import _max_presc
+    since = datetime(2016, 1, 1)
+    # 같은 질병에 8/22 3일, 9/10 5일, 10/01 30일 처방
+    flat = {"2025-08-22": 3, "2025-09-10": 5, "2025-10-01": 30}
+    assert _max_presc(flat, since) == 30          # 합산(38) 아님
+
+    # episode 중첩형도 max
+    nested = {"2025-08-22": {"A의원": 3, "B약국": 3}, "2025-10-01": {"C의원": 30}}
+    assert _max_presc(nested, since) == 30         # 합산(36) 아님
+
+
 def test_pure_dispensing_only_rows_skipped():
     """'조제' 값만 있는 순수 약국 행도 스킵돼야 한다."""
     today = datetime(2026, 5, 12)
