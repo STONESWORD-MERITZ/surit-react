@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 const STEPS = [
   { key: "parse",  label: "PDF 파싱",     hint: "기본진료·세부진료·처방조제를 읽고 있어요" },
-  { key: "rule",   label: "고지 룰 적용", hint: "KCD 코드 단위로 알릴의무 4문항을 분류해요" },
+  { key: "rule",   label: "고지 룰 적용", hint: "KCD-9 코드 기준으로 알릴의무 문항을 분류해요" },
   { key: "ai",     label: "AI 의학 판단", hint: "추가검사 여부·치료 종결 여부를 확인해요" },
   { key: "merge",  label: "결과 정리",    hint: "질환별로 묶어 카드로 보여드릴 준비 중이에요" },
 ] as const;

@@ -329,14 +329,14 @@ def _compute_recommended_disclosure(
     _, _, elapsed_days, hosp_days_limit, hosp_count_limit, surg_limit = rule
     ten_years_ago = reference_date - timedelta(days=3650)
 
-    # 입원 기록 수집 (날짜, 일수)
+    # 입원 기록 수집 (날짜, 실제 입원일수)
     inpatient_dates = disease_stat.get("inpatient_dates", set())
+    inp_days_map = disease_stat.get("_inpatient_days_map", {})
     inp_records: list[tuple[str, int]] = []
     for d in sorted(inpatient_dates):
         dt = _parse_dt(d)
         if dt and dt >= ten_years_ago:
-            # 개별 입원 건의 일수를 알 수 없으므로 1일로 추정
-            inp_records.append((d, 1))
+            inp_records.append((d, inp_days_map.get(d, 1)))
 
     # 수술 기록
     surgery_dates = disease_stat.get("surgery_dates", set())
@@ -351,9 +351,9 @@ def _compute_recommended_disclosure(
         remaining_inp = inp_records[exclude_count:]
         remaining_surg = surg_records[exclude_count:]
 
-        # 입원 체크
+        # 입원 체크 — h_days 는 실제 입원일수 합, h_count 는 입원 건수
         h_ok = True
-        h_days = len(remaining_inp)
+        h_days = sum(days for _, days in remaining_inp)
         h_count = len(remaining_inp)
         if hosp_days_limit != -1 and h_days > hosp_days_limit:
             h_ok = False

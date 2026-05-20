@@ -47,10 +47,10 @@ function StatCard({ value, suffix, label, delay }: { value: number; suffix: stri
 
 // ── 데이터 ────────────────────────────────────────────────────
 const STATS = [
-  { value: 100, suffix: "+", label: "검증된 KCD 코드 룰셋" },
-  { value: 7,   suffix: "개", label: "자동 분류 알릴의무 문항" },
-  { value: 3,   suffix: "종", label: "동시 분석 심평원 PDF" },
-  { value: 5,   suffix: "분", label: "업로드부터 결과까지" },
+  { value: 9,   suffix: "차", label: "최신 KCD 질병분류 기준 반영" },
+  { value: 7,   suffix: "개", label: "건강체·간편 알릴의무 자동 분류" },
+  { value: 3,   suffix: "종", label: "기본·세부·처방 PDF 교차 분석" },
+  { value: 5,   suffix: "분", label: "업로드부터 결과 정리까지" },
 ];
 
 const ROADMAP = [
@@ -336,7 +336,7 @@ export default function Home() {
                   심평원 PDF 기준으로 건강체·간편심사 가입 전 고지 대상 병력을 자동 정리합니다.
                 </p>
                 <ul className="mt-4 space-y-1.5">
-                  {["고객 상담용 카카오톡 메시지 자동 생성", "메리츠 간편심사 예외질환 룰 내장"].map(b => (
+                  {["고객 상담용 카카오톡 메시지 자동 생성", "간편심사 예외질환 인수 판정 지원"].map(b => (
                     <li key={b} className="flex items-start gap-2 text-[13px] text-gray-500">
                       <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-gray-400" />
                       <span className="break-keep">{b}</span>
