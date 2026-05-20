@@ -18,6 +18,14 @@ export default function Layout() {
 
           <nav className="flex items-center gap-5 text-sm font-semibold text-gray-600">
             <NavLink
+              to="/why"
+              className={({ isActive }) =>
+                isActive ? "text-indigo-600" : "hover:text-gray-900 transition-colors"
+              }
+            >
+              왜 중요한가
+            </NavLink>
+            <NavLink
               to="/check"
               className={({ isActive }) =>
                 isActive ? "text-indigo-600" : "hover:text-gray-900 transition-colors"

@@ -13,6 +13,7 @@ import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Terms from "./pages/Terms";
 import History from "./pages/History";
 import HistoryDetail from "./pages/HistoryDetail";
+import WhyDisclosure from "./pages/WhyDisclosure";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -61,6 +62,7 @@ function App() {
             path="before-after"
             element={<ProtectedRoute><BeforeAfter /></ProtectedRoute>}
           />
+          <Route path="why" element={<WhyDisclosure />} />
           <Route path="privacy" element={<PrivacyPolicy />} />
           <Route path="terms" element={<Terms />} />
           <Route
