@@ -6,7 +6,6 @@ function useCountUp(target: number, duration = 1800, active = false) {
   const [count, setCount] = useState(0);
   useEffect(() => {
     if (!active) return;
-    setCount(0);
     const start = performance.now();
     const tick = (now: number) => {
       const elapsed = Math.min((now - start) / duration, 1);
@@ -14,7 +13,8 @@ function useCountUp(target: number, duration = 1800, active = false) {
       setCount(Math.round(eased * target));
       if (elapsed < 1) requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    const raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [target, duration, active]);
   return count;
 }
