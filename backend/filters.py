@@ -82,11 +82,8 @@ def _max_presc(med_dict, since_dt) -> int:
             values.extend(int(x or 0) for x in v.values())
         else:
             values.append(int(v or 0))
-    if not values:
-        return 0
-    if any(isinstance(v, dict) for v in med_dict.values()):
-        return sum(values)
-    return max(values)
+    # 같은 질병 여러 처방은 합산이 아닌 최대값 (helpers._max_presc 와 동일 의미)
+    return max(values) if values else 0
 
 
 # KCD-7 상병코드 패턴: 영문 1자(A~Z) + 숫자 2~4자 + 옵션 숫자/문자

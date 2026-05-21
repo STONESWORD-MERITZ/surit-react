@@ -125,9 +125,32 @@ def test_health_q3_med_30d_with_inpatient():
     assert "R-H-Q3-INP-10Y" in rule_ids
 
 
-def test_health_q3_med_30d_from_prescription_episodes():
-    """날짜/기관별 처방 에피소드 합산이 30일 이상이면 Q3 투약으로 본다."""
+def test_health_q3_med_30d_uses_max_episode_not_sum():
+    """투약일수는 합산이 아닌 단일 처방 최대값 기준 (합산 버그 방지).
+
+    같은 질병에 짧은 처방을 여러 번 받았다고 '계속 30일 이상 투약'으로
+    보지 않는다. 단일 처방이 30일 이상일 때만 Q3 투약으로 본다.
+    """
+    # ① 한 번에 35일 처방 → Q3 투약 해당
     ds = {
+        "M54": _disease(
+            code="M54",
+            name="등통증(경추 및 요추)",
+            visits=["2023-09-04"],
+            first="2023-09-04",
+            latest="2023-09-04",
+        )
+    }
+    ds["M54"]["med_dates_pharma_episode"] = {
+        "2023-09-04": {"민재활의학과의원": 35},
+    }
+    items = build_code_based_items(ds, REF, PRODUCT_HEALTH)
+    med_items = [it for it in items if it["_rule_id"] == "R-H-Q3-MED-30D"]
+    assert len(med_items) == 1
+    assert med_items[0]["med_days"] >= 30
+
+    # ② 7일 처방을 여러 번(합산 40일이지만 최대 7일) → Q3 투약 미해당
+    ds2 = {
         "M54": _disease(
             code="M54",
             name="등통증(경추 및 요추)",
@@ -136,15 +159,13 @@ def test_health_q3_med_30d_from_prescription_episodes():
             latest="2023-09-27",
         )
     }
-    ds["M54"]["med_dates_pharma_episode"] = {
+    ds2["M54"]["med_dates_pharma_episode"] = {
         "2023-09-04": {"민재활의학과의원": 7, "하나로약국": 7},
         "2023-09-11": {"민재활의학과의원": 7, "하나로약국": 7},
         "2023-09-27": {"신원비뇨기과의원": 6, "성모약국": 6},
     }
-    items = build_code_based_items(ds, REF, PRODUCT_HEALTH)
-    med_items = [it for it in items if it["_rule_id"] == "R-H-Q3-MED-30D"]
-    assert len(med_items) == 1
-    assert med_items[0]["med_days"] >= 30
+    items2 = build_code_based_items(ds2, REF, PRODUCT_HEALTH)
+    assert not [it for it in items2 if it["_rule_id"] == "R-H-Q3-MED-30D"]
 
 
 def test_health_q4_critical_codes():

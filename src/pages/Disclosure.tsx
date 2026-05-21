@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import AnalysisProgress from "../components/AnalysisProgress";
+import { useAuth } from "../lib/auth-context";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
@@ -179,6 +181,7 @@ function Chip({ label, tone = "gray" }: { label: string; tone?: string }) {
 function extractQNumber(qTitle: string): string {
   const exact = qTitle.match(/(\d+)\s*번\s*질문/);
   if (exact) return `Q${exact[1]}`;
+  if (qTitle.includes("참고")) return "참고";
   const any = qTitle.match(/\d+/);
   return any ? `Q${any[0]}` : "Q";
 }
@@ -449,6 +452,21 @@ function DisclosureSection({
   );
 }
 
+function DisclaimerBox() {
+  return (
+    <div className="mt-5 rounded-[8px] border border-gray-200 bg-gray-50 p-4 text-[11px] leading-5 text-gray-500">
+      <p className="font-bold text-gray-600">분석 결과 이용 시 유의사항</p>
+      <p className="mt-1.5 break-keep">
+        본 결과는 업로드한 진료자료를 바탕으로 AI가 산출한 <b className="font-bold">참고용 보조자료</b>이며,
+        의학적 진단이나 보험 인수 여부를 확정하지 않습니다. 실제 알릴의무(고지) 대상과 범위는
+        보험사별 청약서 문항·약관·인수지침에 따라 달라질 수 있으므로, 청약 전 반드시 해당 청약서
+        문항과 대조해 주세요. 고지 누락에 대한 최종 책임은 청약자 본인에게 있으며, 본 서비스는
+        분석 결과의 사용으로 인한 법적 책임을 지지 않습니다.
+      </p>
+    </div>
+  );
+}
+
 function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMode }) {
   const [productTab, setProductTab] = useState<"standard" | "easy">("standard");
   const activeReports = productTab === "standard" ? result.standard_reports : result.easy_reports;
@@ -527,6 +545,8 @@ function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMod
           />
         </div>
       </section>
+
+      <DisclaimerBox />
     </div>
   );
 }
@@ -722,8 +742,10 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
   const mode: AudienceMode = requestedMode === "customer" || requestedMode === "agent" ? requestedMode : initialMode;
   const copy = modeCopy[mode];
 
+  const { session } = useAuth();
   const [refDate, setRefDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [birthdate, setBirthdate] = useState("");
+  const [consent, setConsent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<AnalyzeResult | null>(null);
@@ -770,6 +792,15 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
       setError("PDF 파일을 업로드해 주세요.");
       return;
     }
+    if (!consent) {
+      setError("민감정보(건강정보) 처리 동의가 필요합니다. 동의 항목을 확인해 주세요.");
+      return;
+    }
+    const token = session?.access_token;
+    if (!token) {
+      setError("로그인이 필요합니다. 다시 로그인한 뒤 시도해 주세요.");
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -783,6 +814,7 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
     try {
       const res = await fetch(`${API_BASE}/api/analyze`, {
         method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
         body: form,
         signal: AbortSignal.timeout(180_000),
       });
@@ -864,9 +896,23 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
           <p className="mt-3 text-xs text-gray-500">{copy.uploadHelp}</p>
         </div>
 
+        <label className="mt-4 flex items-start gap-2.5 rounded-[8px] bg-gray-50 px-4 py-3 text-xs leading-5 text-gray-600">
+          <input
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[#4F46E5]"
+          />
+          <span className="break-keep">
+            업로드하는 진료자료에는 <b className="font-bold text-gray-700">민감정보(건강에 관한 정보)</b>가 포함됩니다.
+            알릴의무 분석 목적의 처리에 동의하며, 자료는 분석 직후 서버에서 폐기되고 저장되지 않습니다.
+            <Link to="/privacy" className="ml-1 underline hover:text-gray-800">개인정보처리방침</Link>
+          </span>
+        </label>
+
         <button
           onClick={analyze}
-          disabled={loading}
+          disabled={loading || !consent}
           className="mt-5 w-full rounded-[8px] bg-[#4F46E5] py-3 text-sm font-bold text-white shadow-[0_2px_8px_rgba(79,70,229,0.3)] transition-colors hover:bg-[#4338CA] disabled:opacity-50"
         >
           {loading ? "분석 중..." : copy.button}
@@ -885,6 +931,12 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
 
       {error && (
         <div className="mb-5 rounded-[8px] bg-red-50 p-4 text-sm font-semibold text-red-600">{error}</div>
+      )}
+
+      {loading && (
+        <div aria-live="polite" className="mb-5">
+          <AnalysisProgress />
+        </div>
       )}
 
       {result && <ResultView result={result} mode={mode} />}

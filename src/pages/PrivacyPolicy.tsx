@@ -1,5 +1,15 @@
 import { Link } from "react-router-dom";
 
+// TODO(사업자 정보): 사업자 등록 후 아래 값을 채워주세요.
+//   값이 비어 있으면 화면에는 "(... 등록 예정)" 으로 표시됩니다.
+const COMPANY = {
+  privacyOfficer: "",   // 개인정보 보호책임자 성명
+  privacyContact: "",   // 연락처
+  privacyEmail: "",     // 이메일
+  effectiveDate: "",    // 시행일 (예: 2026-06-01)
+};
+const _ph = (v: string, label: string): string => (v ? v : `(${label} 등록 예정)`);
+
 const SECTIONS: { title: string; body: string }[] = [
   {
     title: "제1조 (목적)",
@@ -22,7 +32,7 @@ const SECTIONS: { title: string; body: string }[] = [
     title: "제4조 (개인정보의 보유 및 이용 기간)",
     body:
       "① 회원정보: 회원 탈퇴 시까지 보유, 탈퇴 후 즉시 파기.\n" +
-      "② 업로드 PDF 및 추출 의료정보: 분석 처리 직후 서버 메모리에서 폐기되며 저장하지 않습니다. 별도로 저장하는 경우는 이용자가 명시적으로 '저장' 기능을 사용한 경우에 한하며, 이 경우에도 본인 외 접근을 차단합니다.\n" +
+      "② 업로드 PDF 및 추출 의료정보: 분석 처리 직후 서버 메모리에서 폐기되며, 어떠한 경우에도 서버나 데이터베이스에 저장하지 않습니다.\n" +
       "③ 접속 로그: 통신비밀보호법 등 관계 법령이 정하는 기간 동안 보관 후 파기.",
   },
   {
@@ -48,12 +58,12 @@ const SECTIONS: { title: string; body: string }[] = [
   {
     title: "제8조 (개인정보 보호책임자)",
     body:
-      "성명: TODO\n연락처: TODO\n이메일: TODO\n\n이용자는 개인정보 처리와 관련하여 위 보호책임자에게 문의·신고할 수 있으며, 필요시 개인정보보호위원회(privacy.go.kr) 및 한국인터넷진흥원 개인정보침해신고센터(privacy.kisa.or.kr, 국번없이 118) 의 도움을 받을 수 있습니다.",
+      `성명: ${_ph(COMPANY.privacyOfficer, "보호책임자 성명")}\n연락처: ${_ph(COMPANY.privacyContact, "연락처")}\n이메일: ${_ph(COMPANY.privacyEmail, "이메일")}\n\n이용자는 개인정보 처리와 관련하여 위 보호책임자에게 문의·신고할 수 있으며, 필요시 개인정보보호위원회(privacy.go.kr) 및 한국인터넷진흥원 개인정보침해신고센터(privacy.kisa.or.kr, 국번없이 118) 의 도움을 받을 수 있습니다.`,
   },
   {
     title: "제9조 (방침의 변경)",
     body:
-      "본 개인정보처리방침은 법령 및 서비스 정책 변경 시 사전 공지 후 개정될 수 있습니다. 시행일자: TODO",
+      `본 개인정보처리방침은 법령 및 서비스 정책 변경 시 사전 공지 후 개정될 수 있습니다. 시행일자: ${_ph(COMPANY.effectiveDate, "시행일")}`,
   },
 ];
 
@@ -61,7 +71,7 @@ export default function PrivacyPolicy() {
   return (
     <main className="mx-auto max-w-3xl px-5 py-10">
       <h1 className="text-2xl font-extrabold text-gray-900">개인정보처리방침</h1>
-      <p className="mt-2 text-xs text-gray-400">최종 개정 시행일: TODO</p>
+      <p className="mt-2 text-xs text-gray-400">최종 개정 시행일: {_ph(COMPANY.effectiveDate, "시행일")}</p>
       <div className="mt-8 space-y-7">
         {SECTIONS.map((s) => (
           <section key={s.title}>

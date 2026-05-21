@@ -55,7 +55,10 @@ function App() {
             path="disclosure"
             element={<ProtectedRoute><Disclosure initialMode="agent" /></ProtectedRoute>}
           />
-          <Route path="check" element={<Disclosure initialMode="customer" />} />
+          <Route
+            path="check"
+            element={<ProtectedRoute><Disclosure initialMode="customer" /></ProtectedRoute>}
+          />
           <Route
             path="before-after"
             element={<ProtectedRoute><BeforeAfter /></ProtectedRoute>}

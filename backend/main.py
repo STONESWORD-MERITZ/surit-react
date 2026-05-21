@@ -14,17 +14,21 @@ import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 
-from fastapi import FastAPI, File, Request, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, Request, UploadFile, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import httpx
 
 from analyzer import run_analysis, AnalysisError
 
 # ── 서비스 환경 ──────────────────────────────────────────────────────────────
 SENTRY_DSN  = os.environ.get("SENTRY_DSN", "")
 SERVICE_ENV = os.environ.get("SERVICE_ENV", "development")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
 
 def _sanitize_event(event, hint=None):
@@ -204,6 +208,46 @@ def _serialize_reports(summary_reports: dict) -> dict:
     return out
 
 
+# ── 업로드 제한 ──────────────────────────────────────────────────────────────
+MAX_FILE_COUNT = 6
+MAX_FILE_SIZE  = 15 * 1024 * 1024   # 파일당 15MB
+MAX_TOTAL_SIZE = 40 * 1024 * 1024   # 총합 40MB
+
+# ── 인증 (Supabase 토큰 검증) ────────────────────────────────────────────────
+# JWT 비밀키/서명 알고리즘에 의존하지 않고 Supabase Auth 서버에 토큰을 직접
+# 확인한다. Legacy·신형(비대칭 키) 프로젝트 모두에서 동작한다.
+_bearer = HTTPBearer(auto_error=True)
+
+
+async def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> str:
+    """Supabase Auth 서버에 토큰을 확인해 로그인 진위를 검증하고 사용자 ID를 반환한다."""
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        logger.error("SUPABASE_URL / SUPABASE_ANON_KEY 미설정 — 인증 검증 불가. 환경변수를 설정하세요.")
+        raise HTTPException(status_code=503, detail="서비스 점검 중입니다. 잠시 후 다시 시도해 주세요.")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{SUPABASE_URL}/auth/v1/user",
+                headers={
+                    "apikey": SUPABASE_ANON_KEY,
+                    "Authorization": f"Bearer {credentials.credentials}",
+                },
+            )
+    except httpx.HTTPError as e:
+        logger.warning("Supabase 인증 서버 호출 실패: %s", e)
+        raise HTTPException(status_code=503, detail="로그인 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+    if resp.status_code != 200:
+        logger.warning("토큰 검증 실패: status=%s", resp.status_code)
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다. 다시 로그인한 뒤 시도해 주세요.")
+    try:
+        user_id = (resp.json() or {}).get("id")
+    except ValueError:
+        user_id = None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 인증 토큰입니다.")
+    return user_id
+
+
 # ── 엔드포인트 ───────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
@@ -226,6 +270,7 @@ async def analyze(
     files: list[UploadFile] = File(..., description="심평원 진료 PDF"),
     reference_date: str = Form(..., description="YYYY-MM-DD"),
     birthdate_pw: str = Form(default="", description="PDF 비밀번호용 생년월일"),
+    user_id: str = Depends(verify_jwt),
 ):
     try:
         ref_date = date.fromisoformat(reference_date)
@@ -234,6 +279,18 @@ async def analyze(
 
     if not files:
         raise HTTPException(status_code=400, detail="PDF 파일을 1개 이상 업로드해 주세요.")
+
+    if len(files) > MAX_FILE_COUNT:
+        raise HTTPException(
+            status_code=413,
+            detail=f"PDF는 최대 {MAX_FILE_COUNT}개까지 업로드할 수 있습니다.",
+        )
+    for f in files:
+        if getattr(f, "size", None) and f.size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"개별 PDF 크기는 {MAX_FILE_SIZE // (1024 * 1024)}MB를 넘을 수 없습니다.",
+            )
 
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
@@ -249,9 +306,21 @@ async def analyze(
 
     async def _read(f):
         data = await f.read()
+        if len(data) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"개별 PDF 크기는 {MAX_FILE_SIZE // (1024 * 1024)}MB를 넘을 수 없습니다.",
+            )
         return _PDFFile(name=f.filename or "unknown.pdf", data=data)
 
     active_files = await asyncio.gather(*[_read(f) for f in files])
+
+    total_size = sum(len(af.read()) for af in active_files)
+    if total_size > MAX_TOTAL_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"전체 PDF 합계 크기는 {MAX_TOTAL_SIZE // (1024 * 1024)}MB를 넘을 수 없습니다.",
+        )
 
     # 표준 컨텍스트로 AI 분석 (Q1-Q4 전체 수집) — 간편 결과는 파생
     product_type_kr = PRODUCT_TYPE_MAP["standard"]

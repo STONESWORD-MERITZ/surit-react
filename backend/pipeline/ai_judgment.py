@@ -277,11 +277,12 @@ async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_dat
             }
         except Exception as e:
             err_str = str(e)
-            if ("503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str) \
-                    and attempt < MAX_RETRIES - 1:
+            _retryable = ("503", "UNAVAILABLE", "high demand", "overloaded",
+                          "429", "RESOURCE_EXHAUSTED", "rate limit", "quota")
+            if any(s in err_str for s in _retryable) and attempt < MAX_RETRIES - 1:
                 wait = RETRY_DELAYS[attempt]
                 retry_local.append(
-                    f"[{fname}] Gemini 서버 과부하로 {wait}초 후 재시도합니다... ({attempt + 1}/{MAX_RETRIES - 1})"
+                    f"[{fname}] Gemini 호출이 지연되어 {wait}초 후 재시도합니다... ({attempt + 1}/{MAX_RETRIES - 1})"
                 )
                 await asyncio.sleep(wait)
                 continue
