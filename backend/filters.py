@@ -32,6 +32,8 @@ _KW = _load_kw()
 HEALTH_Q5_CODES            = tuple(_KW["health_q5_codes"])
 SIMPLE_Q3_CODES            = tuple(_KW["simple_q3_codes"])
 SIMPLE_Q3_ALLOWED_PREFIXES = tuple(_KW["simple_q3_allowed_prefixes"])
+# 건강검진·선별검사·예방접종 등 비질병 KCD 코드 (질병으로 집계하지 않음)
+NON_DISEASE_CODE_PREFIXES  = tuple(_KW.get("non_disease_code_prefixes", []))
 
 
 # ── 공유 헬퍼 (analyzer.py와 동일 로직, 순환 임포트 방지를 위해 인라인) ──
@@ -109,6 +111,8 @@ def _is_valid_disease(diag_code: str, name: str) -> bool:
         return False
     if not _KCD_RE.match(diag_code):
         return False
+    if any(diag_code.strip().upper().startswith(p) for p in NON_DISEASE_CODE_PREFIXES):
+        return False  # 건강검진·선별검사·예방접종 코드는 질병 아님
     if name:
         for pat in _NON_DISEASE_NAME_PATTERNS:
             if pat in name:

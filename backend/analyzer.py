@@ -690,7 +690,10 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
         else {"additional_tests": {}, "treatment_ongoing": {}}
     )
     if "_error" in _med_result:
-        retry_warnings.append(f"⚠️ 의학 판단 API 오류 (비치명적): {_med_result['_error']}")
+        retry_warnings.append(
+            "⚠️ 추가검사 여부·치료 종결 여부(알릴의무 Q2 등) 자동 판단을 완료하지 못했습니다. "
+            "이 항목은 결과에서 누락됐을 수 있으니 진료 원자료로 직접 확인해 주세요."
+        )
 
     ai_successes: list[dict] = []
     for i, go in enumerate(gemini_out):

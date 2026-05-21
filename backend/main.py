@@ -54,6 +54,7 @@ if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         environment=SERVICE_ENV,
+        release=os.environ.get("RAILWAY_GIT_COMMIT_SHA", "dev"),
         traces_sample_rate=0.1,
         profiles_sample_rate=0.0,
         send_default_pii=False,
@@ -212,6 +213,7 @@ def _serialize_reports(summary_reports: dict) -> dict:
 MAX_FILE_COUNT = 6
 MAX_FILE_SIZE  = 15 * 1024 * 1024   # 파일당 15MB
 MAX_TOTAL_SIZE = 40 * 1024 * 1024   # 총합 40MB
+ANALYZE_TIMEOUT_SECONDS = 170       # 서버측 분석 상한 (프런트 180초보다 짧게)
 
 # ── 인증 (Supabase 토큰 검증) ────────────────────────────────────────────────
 # JWT 비밀키/서명 알고리즘에 의존하지 않고 Supabase Auth 서버에 토큰을 직접
@@ -326,12 +328,21 @@ async def analyze(
     product_type_kr = PRODUCT_TYPE_MAP["standard"]
 
     try:
-        result = await run_analysis(
-            active_files=active_files,
-            product_type=product_type_kr,
-            reference_date=ref_date,
-            birthdate_pw=birthdate_pw,
-            api_key=api_key,
+        result = await asyncio.wait_for(
+            run_analysis(
+                active_files=active_files,
+                product_type=product_type_kr,
+                reference_date=ref_date,
+                birthdate_pw=birthdate_pw,
+                api_key=api_key,
+            ),
+            timeout=ANALYZE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("analyze 시간 초과 (%ss)", ANALYZE_TIMEOUT_SECONDS)
+        raise HTTPException(
+            status_code=504,
+            detail="분석이 시간 내에 끝나지 않았어요. PDF 페이지 수를 줄이거나 잠시 후 다시 시도해 주세요.",
         )
     except AnalysisError as e:
         # 사용자 친화 메시지 그대로 전달 (parse_single_pdf 에서 이미 정제됨)

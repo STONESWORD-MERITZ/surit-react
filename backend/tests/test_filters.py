@@ -393,3 +393,13 @@ def test_filter_rejects_non_kcd_name():
     assert not any("진찰료" in (it.get("disease") or "") for it in items)
     assert not any("PHARMA" in (it.get("code") or "") for it in items)
     assert not any("재진진찰료" in (it.get("code") or "") for it in items)
+
+
+def test_non_disease_zcodes_excluded():
+    """건강검진·선별검사·예방접종 Z코드는 질병으로 인정하지 않는다."""
+    from filters import _is_valid_disease
+    for code in ["Z00", "Z000", "Z11", "Z113", "Z23", "Z25"]:
+        assert _is_valid_disease(code, "건강검진") is False, f"{code} 제외 실패"
+    # 개인력·수술후상태 등 질병 관련 Z코드는 유지
+    for code in ["Z85", "Z98", "Z95"]:
+        assert _is_valid_disease(code, "") is True, f"{code} 잘못 제외됨"

@@ -11,6 +11,7 @@ if (SENTRY_DSN) {
   Sentry.init({
     dsn: SENTRY_DSN,
     environment: import.meta.env.MODE,
+    release: __APP_RELEASE__,
     tracesSampleRate: 0.1,
     replaysSessionSampleRate: 0.0,   // 세션 리플레이 비활성(PII 보호)
     replaysOnErrorSampleRate: 0.0,

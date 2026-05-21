@@ -8,13 +8,10 @@ const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").repla
 type AudienceMode = "customer" | "agent";
 
 function connectionErrorMessage(apiBase: string): string {
-  return (
-    "서버에 연결할 수 없습니다. " +
-    (typeof window !== "undefined" && window.location.hostname !== "localhost"
-      ? `배포 환경에서는 VITE_API_URL에 백엔드 주소가 설정되어야 합니다. 현재 요청 주소: ${apiBase}. `
-      : "") +
-    "백엔드 실행 상태와 CORS 설정을 확인해 주세요."
-  );
+  if (typeof console !== "undefined") {
+    console.error("[SURIT] API 연결 실패:", apiBase);
+  }
+  return "서버에 연결하지 못했어요. 인터넷 연결을 확인하시고 잠시 후 다시 시도해 주세요. 문제가 계속되면 관리자에게 문의해 주세요.";
 }
 
 type DiseaseSummary = {
@@ -820,7 +817,7 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.detail || `서버 오류 (${res.status})`);
+        throw new Error(body?.detail || "분석 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.");
       }
       const data = await res.json();
       setResult(data);

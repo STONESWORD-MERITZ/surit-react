@@ -4,6 +4,12 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Disclosure from "./Disclosure";
 
+vi.mock("../lib/auth-context", () => ({
+  useAuth: () => ({
+    session: { access_token: "test-access-token" },
+  }),
+}));
+
 const mockAnalyzeResult = {
   flagged_count: 1,
   total_q_count: 1,
@@ -111,7 +117,11 @@ describe("Disclosure guided tour", () => {
       container.querySelector("input[type='file']") as HTMLInputElement,
       new File(["mock"], "sample.pdf", { type: "application/pdf" }),
     );
-    await user.click(screen.getByRole("button", { name: "AI 고지사항 추출" }));
+    const analyzeButton = screen.getByRole("button", { name: "AI 고지사항 추출" });
+    expect(analyzeButton).toBeDisabled();
+    await user.click(screen.getByRole("checkbox"));
+    expect(analyzeButton).toBeEnabled();
+    await user.click(analyzeButton);
 
     expect(await screen.findByText("4 / 6")).toBeInTheDocument();
     expect(screen.getByText("병력 요약 펼치기 또는 접기")).toBeInTheDocument();
