@@ -378,8 +378,16 @@ def build_disease_stats(
                 if _gubun_clean and _gubun_clean != "외래" and "조제" in _gubun_clean:
                     continue
 
-                # 추가 안전망: 같은 (날짜, 약품명) 쌍 중복 방어
-                _seen_key = (clean_date, (name_str or "").strip())
+                # 추가 안전망: 진짜 중복 행만 차단.
+                # 키에 병원명·투약일수 포함 — 같은 날 같은 약이라도 병원이
+                # 다르거나 투약일수가 다르면 별개 처방으로 보아 보존한다.
+                # (감사: _pharma_seen 키 보강 — 정상 처방 오스킵 방지)
+                _seen_key = (
+                    clean_date,
+                    (name_str or "").strip(),
+                    (hospital or "").strip(),
+                    m_days,
+                )
                 if _seen_key in s["_pharma_seen"]:
                     continue
                 s["_pharma_seen"].add(_seen_key)

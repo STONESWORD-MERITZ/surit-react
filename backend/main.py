@@ -76,6 +76,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ── CORS ─────────────────────────────────────────────────────────────────────
 _default_origins = "https://surit-react.vercel.app,http://localhost:5173,http://localhost:3000"
 ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", _default_origins).split(",") if o.strip()]
+if SERVICE_ENV == "production":
+    # 운영 환경에서는 localhost 출처를 허용하지 않는다.
+    ALLOWED_ORIGINS = [o for o in ALLOWED_ORIGINS if "localhost" not in o and "127.0.0.1" not in o]
 
 app.add_middleware(
     CORSMiddleware,
@@ -312,6 +315,11 @@ async def analyze(
             raise HTTPException(
                 status_code=413,
                 detail=f"개별 PDF 크기는 {MAX_FILE_SIZE // (1024 * 1024)}MB를 넘을 수 없습니다.",
+            )
+        if b"%PDF-" not in data[:1024]:
+            raise HTTPException(
+                status_code=400,
+                detail="PDF 형식이 아닌 파일이 포함돼 있습니다. 심평원 진료 PDF만 업로드해 주세요.",
             )
         return _PDFFile(name=f.filename or "unknown.pdf", data=data)
 

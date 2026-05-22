@@ -78,3 +78,56 @@ def test_pure_dispensing_only_rows_skipped():
     for s in pharma_groups:
         all_drugs |= s.get("drug_names_in_90", set())
     assert "베포리진정" not in all_drugs, "순수 조제 행이 통과됨"
+
+
+# ── _pharma_seen 키 보강 회귀 (감사 #_pharma_seen) ───────────────────────────
+def _prow(date_str, drug, m_days, hospital):
+    return {
+        "_ftype": "pharma",
+        "_fname": "fake.pdf",
+        "진료시작일": date_str,
+        "처방/조제": "외래",
+        "약품명": drug,
+        "투약일수": str(m_days),
+        "병·의원": hospital,
+    }
+
+
+def _seen_total(disease_stats):
+    groups = [s for k, s in disease_stats.items()
+              if s.get("has_pharma") or k.startswith("PHARMA|")]
+    return sum(len(s.get("_pharma_seen", set())) for s in groups)
+
+
+def test_pharma_same_day_same_drug_different_hospital_kept():
+    """같은 날·같은 약이라도 병원이 다르면 별개 처방으로 보존한다."""
+    today = datetime(2026, 5, 12)
+    records = [
+        _prow("2026-04-01", "베포리진정", 3, "A의원"),
+        _prow("2026-04-01", "베포리진정", 3, "B의원"),
+    ]
+    disease_stats, *_ = build_disease_stats(records, today)
+    assert _seen_total(disease_stats) == 2, "다른 병원 처방 2건이 보존돼야 함"
+
+
+def test_pharma_same_day_same_drug_different_days_kept():
+    """같은 날·같은 약이라도 투약일수가 다르면 별개 처방으로 보존한다."""
+    today = datetime(2026, 5, 12)
+    records = [
+        _prow("2026-04-01", "베포리진정", 3, "A의원"),
+        _prow("2026-04-01", "베포리진정", 30, "A의원"),
+    ]
+    disease_stats, *_ = build_disease_stats(records, today)
+    assert _seen_total(disease_stats) == 2, "투약일수가 다른 처방은 보존돼야 함"
+
+
+def test_pharma_identical_rows_still_deduped():
+    """날짜·약품·병원·투약일수가 모두 같은 진짜 중복 행은 여전히 1건만 기록한다."""
+    today = datetime(2026, 5, 12)
+    records = [
+        _prow("2026-04-01", "베포리진정", 3, "A의원"),
+        _prow("2026-04-01", "베포리진정", 3, "A의원"),
+    ]
+    disease_stats, *_ = build_disease_stats(records, today)
+    assert _seen_total(disease_stats) == 1, "완전 동일 중복 행은 1건만 기록돼야 함"
+

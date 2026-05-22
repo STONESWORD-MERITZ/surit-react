@@ -462,7 +462,7 @@ def evaluate_meritz_easy(
             rec_str = f", 추천고지: {r['recommended_year']}년~" if r.get("recommended_year") else ""
             lines.append(f"  ✗ {r['code']}({r['name']}) — {r['reason']}{rec_str}")
     if not within_limit:
-        lines.append(f"  ※ 예외질환 {total_exception}개 — 5개 초과로 인수 불가")
+        lines.append(f"  ※ 예외질환 {total_exception}개 — 5개 초과로 인수 거절 가능성")
     if recommended_year:
         lines.append(f"  → 추천: {recommended_year}년부터 고지 시 통과 가능")
 
