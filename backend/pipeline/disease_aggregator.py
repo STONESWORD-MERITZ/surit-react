@@ -57,6 +57,112 @@ def new_disease():
     }
 
 
+def _norm_provider_name(value: str | None) -> str:
+    return re.sub(r"[\s·ㆍ\.\-_/]", "", value or "")
+
+
+def _detail_action_name(row) -> str:
+    code_name = get_val(row, ["코드명", "수가명", "행위명칭", "행위명"])
+    if code_name:
+        return code_name
+    return get_val(row, ["진료내역", "처치", "처치및수술", "처치및수 술"])
+
+
+def _is_detail_support_only(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text or "").upper()
+    if not compact:
+        return False
+    support_only_keywords = (
+        "SNARE",
+        "SMARTINJECTOR",
+        "INJECTOR",
+        "GUIDEWIRE",
+        "CATHETER",
+        "FORCEP",
+        "FORCEPS",
+        "BALLOON",
+        "STENT",
+        "CLIP",
+        "SCREW",
+        "PLATE",
+        "PIN",
+        "클립",
+        "카테터",
+        "스텐트",
+        "스크류",
+        "플레이트",
+        "치석제거",
+        "치근활택",
+        "재활저출력레이저치료",
+        "저출력레이저치료",
+        "레이저치료[1일당]",
+    )
+    return any(kw in compact for kw in support_only_keywords)
+
+
+_DETAIL_CONFIRMED_SURGERY_KEYWORDS = (
+    "발치술",
+    "매복치발치",
+    "난발치",
+    "결장경하종양수술",
+    "내시경하종양수술",
+    "내시경적점막절제술",
+    "점막하박리절제술",
+    "폴립절제술",
+    "폴립 절제술",
+    "용종절제술",
+    "용종 절제술",
+    "점막절제술",
+    "점막 절제술",
+    "절제술",
+    "절개술",
+    "절개배농",
+    "배농술",
+    "적출술",
+    "봉합술",
+    "이식술",
+    "재건술",
+    "고정술",
+    "유합술",
+    "치환술",
+    "절단술",
+    "성형술",
+    "정복술",
+    "박리술",
+    "소파술",
+    "근치수술",
+    "근본수술",
+    "내시경수술",
+    "복강경",
+    "흉강경",
+    "관절경",
+    "후궁절제술",
+    "추간판제거술",
+    "낭종절제",
+    "종양수술",
+    "치핵절제",
+    "치루수술",
+    "충수절제",
+    "담낭절제",
+    "제왕절개",
+    "백내장수술",
+    "인공수정체삽입술",
+    "혈관성형술",
+    "색전술",
+)
+
+
+def _is_detail_surgery_match(text: str) -> bool:
+    if not text or _is_detail_support_only(text):
+        return False
+    compact = re.sub(r"\s+", "", text)
+    return (
+        _is_surgery_match(text)
+        or any(kw in text or kw in compact for kw in _DETAIL_CONFIRMED_SURGERY_KEYWORDS)
+        or any(kw in text for kw in nhis_surg_keywords)
+    )
+
+
 def build_disease_stats(
     records: list[dict],
     today: datetime,
@@ -79,6 +185,7 @@ def build_disease_stats(
 
     disease_stats: dict = defaultdict(new_disease)
     basic_diagnosis_names: dict[str, str] = {}
+    basic_by_day_provider: dict[tuple[str, str], list[dict]] = defaultdict(list)
     cross_day_index = defaultdict(lambda: {
         "max_basic_cost": 0,
         "basic_hospitals": set(),
@@ -92,6 +199,30 @@ def build_disease_stats(
     date_parse_fail_samples: list[str] = []
     future_date_count = 0
 
+    for _, row in df.iterrows():
+        ftype = str(row.get("_ftype", "unknown"))
+        if ftype not in ("basic", "unknown"):
+            continue
+        if row_is_junk(row):
+            continue
+        date_str = get_val(row, ["진료개시일", "진료시작일", "진료일"])
+        clean_date = parse_date(date_str)
+        raw_code = get_diagnosis_code(row)
+        code_str = normalize_code(raw_code)
+        if not clean_date or not code_str:
+            continue
+        hospital = get_val(row, ["병·의원", "기관명", "요양기관명", "병·의원&약국"])
+        if "약국" in hospital:
+            continue
+        dept = get_val(row, ["진단과"])
+        if dept.replace(" ", "") == "일반의" and not _keep_basic_general_row(code_str):
+            continue
+        basic_by_day_provider[(clean_date, _norm_provider_name(hospital))].append({
+            "code": code_str,
+            "grouped_code": disclosure_group_code(code_str),
+            "name": get_diagnosis_name(row),
+        })
+
     # ── disease_stats 구축 루프 ───────────────────────────────────
     for _, row in df.iterrows():
         if row_is_junk(row):
@@ -99,7 +230,17 @@ def build_disease_stats(
         ftype    = str(row.get("_ftype", "unknown"))
         dept     = get_val(row, ["진단과"])
 
-        if ftype in ("detail", "pharma"):
+        linked_basic = None
+        if ftype == "detail":
+            detail_date = parse_date(get_val(row, ["진료개시일", "진료시작일", "진료일"]))
+            detail_provider = _norm_provider_name(get_val(row, ["병·의원", "기관명", "요양기관명", "병·의원&약국"]))
+            matches = basic_by_day_provider.get((detail_date, detail_provider), [])
+            if matches:
+                linked_basic = matches[0]
+
+        if ftype == "detail" and linked_basic:
+            raw_code = linked_basic["code"]
+        elif ftype in ("detail", "pharma"):
             raw_code = ""
         else:
             raw_code = get_diagnosis_code(row)
@@ -107,7 +248,7 @@ def build_disease_stats(
         grouped_code_str = disclosure_group_code(code_str)
 
         if ftype == "detail":
-            name_str = get_val(row, ["행위명칭", "행위명", "진료내역", "처치및수술", "처치및수 술"])
+            name_str = _detail_action_name(row)
         elif ftype == "pharma":
             name_str = get_val(row, ["약품명", "의약품명"])
         else:
@@ -115,7 +256,7 @@ def build_disease_stats(
                                                                "행위명칭", "행위명", "처치및수술", "처치및수 술"])
 
         in_out   = get_val(row, ["입내원구분", "입원외래구분", "입원", "외래", "구분"])
-        hospital = get_val(row, ["병·의원", "기관명", "요양기관명"])
+        hospital = get_val(row, ["병·의원", "기관명", "요양기관명", "병·의원&약국"])
         date_str = get_val(row, ["진료개시일", "진료시작일", "진료일", "조제일자", "처방일"])
         m_days_raw = get_val(row, ["내원일수", "투약일수", "요양일수"])
         m_days = int(re.findall(r"\d+", m_days_raw)[0]) if re.findall(r"\d+", m_days_raw) else 0
@@ -195,11 +336,11 @@ def build_disease_stats(
                 day_fact = s["_daily_facts"].setdefault(clean_date, {"max_basic_cost": 0, "detail_proc_names": set()})
                 day_fact["max_basic_cost"] = max(day_fact["max_basic_cost"], cost_val)
             elif ftype == "detail":
-                act_name = get_val(row, ["행위명칭", "행위명", "진료내역", "처치"])
+                act_name = _detail_action_name(row)
                 surg_col = get_val(row, ["처치및수술", "처치및수 술", "처치/수술"])
                 surg_target = act_name if act_name else name_str
                 is_surg_by_column = bool(surg_col and surg_col.strip() and surg_col.strip() != "0")
-                is_surg_by_keyword = _is_surgery_match(surg_target)
+                is_surg_by_keyword = _is_detail_surgery_match(surg_target)
 
                 if is_surg_by_column:
                     surg_label = surg_col.strip() if len(surg_col.strip()) > 2 else (surg_target or "처치및수술")
@@ -326,11 +467,11 @@ def build_disease_stats(
                     if "입원" in in_out or "입원" in name_str:
                         idx["inpatient_flag"] = True
                 elif ftype == "detail":
-                    act_name_idx = get_val(row, ["행위명칭", "행위명", "진료내역", "처치", "처치및수술", "처치및수 술"])
+                    act_name_idx = _detail_action_name(row)
                     target_idx = act_name_idx if act_name_idx else name_str
                     if target_idx:
                         idx["detail_proc_names"].add(target_idx)
-                    if _is_surgery_match(target_idx):
+                    if _is_detail_surgery_match(target_idx):
                         idx["has_detail_surg_kw"] = True
                     if _is_procedure_kw(target_idx):
                         idx["has_detail_proc_kw"] = True
@@ -374,12 +515,16 @@ def build_disease_stats(
                     if d not in _s["surgery_dates"]:
                         _s["surgery_dates"].add(d)
                     if idx["detail_proc_names"]:
+                        confirmed_proc_names = []
                         for pn in idx["detail_proc_names"]:
-                            if _is_confirmed_surgery_cost_kw(pn) or _is_surgery_match(pn):
+                            if _is_detail_support_only(pn):
+                                continue
+                            if _is_confirmed_surgery_cost_kw(pn) or _is_detail_surgery_match(pn):
+                                confirmed_proc_names.append(pn)
                                 _s["surgeries"].add(pn)
                         if not (_s["surgeries"] & set(idx["detail_proc_names"])):
                             _s["surgeries"].update(idx["detail_proc_names"])
-                        _hint_name = next(iter(_sorted_strings(idx["detail_proc_names"])))
+                        _hint_name = next(iter(_sorted_strings(confirmed_proc_names)), next(iter(_sorted_strings(idx["detail_proc_names"]))))
                     else:
                         _hint_name = _name or _dc or "수술"
                     cross_surgery_hints.append(
@@ -391,6 +536,13 @@ def build_disease_stats(
                     _s["surgery_suspected_dates"].add(d)
                     cross_surgery_hints.append(
                         f"{d} {_dc or ckey} {_hint_name} 수술의심(키워드없음+기본진료비 {max_cost:,}원) ★설계사확인"
+                    )
+                else:
+                    _hint_name = _name or _dc or "고액진료"
+                    _s["surgery_suspected_names"].add(_hint_name)
+                    _s["surgery_suspected_dates"].add(d)
+                    cross_surgery_hints.append(
+                        f"{d} {_dc or ckey} {_hint_name} 수술의심(기본진료비 {max_cost:,}원) ★원자료확인"
                     )
             elif max_cost >= PROCEDURE_COST_THRESHOLD:
                 if has_detail_proc_kw:
@@ -432,7 +584,7 @@ def build_disease_stats(
         code_raw = "" if ftype in ("detail", "pharma") else get_diagnosis_code(row)
         code_str = normalize_code(code_raw)
         if ftype == "detail":
-            name_str = get_val(row, ["행위명칭", "행위명", "진료내역", "처치및수술"])
+            name_str = _detail_action_name(row)
         elif ftype == "pharma":
             name_str = get_val(row, ["약품명", "의약품명"])
         else:
@@ -440,7 +592,7 @@ def build_disease_stats(
                 get_diagnosis_name(row)
                 or get_val(row, ["진료내역", "행위명"])
             )
-        hospital = get_val(row, ["병·의원", "기관명", "요양기관명"])
+        hospital = get_val(row, ["병·의원", "기관명", "요양기관명", "병·의원&약국"])
         in_out   = get_val(row, ["입내원구분", "입원외래구분", "입원", "외래", "구분"])
         m_days   = get_val(row, ["내원일수", "투약일수", "요양일수"])
         cost_raw = get_val(row, ["총진료비", "진료비", "총 진료비"])
@@ -449,7 +601,7 @@ def build_disease_stats(
         if ftype == "pharma" and not m_days: continue
 
         if ftype == "detail":
-            act_name_raw = get_val(row, ["행위명칭", "행위명", "진료내역", "처치"])
+            act_name_raw = _detail_action_name(row)
             display_name = name_str[:20]
             act_norm = re.sub(r"[\s\d]", "", (act_name_raw or ""))[:15]
             dedup_key = (code_str, date_str, ftype, act_norm)
@@ -467,7 +619,7 @@ def build_disease_stats(
 
         act_suffix = ""
         if ftype == "detail":
-            _act = get_val(row, ["행위명칭", "행위명", "진료내역", "처치"])
+            _act = _detail_action_name(row)
             if _act:
                 act_suffix = f" 행위:{_act[:25]}"
         line_core = (

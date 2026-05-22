@@ -34,6 +34,7 @@ from analyzer import (
     _dts_in_range,
     _code_in,
 )
+from pipeline.disease_aggregator import build_disease_stats
 
 
 # ── detect_file_type ──────────────────────────────────────────────
@@ -228,6 +229,171 @@ def test_snapshot_surgery_detection():
     assert _is_surgery_match("대장내시경 용종절제술") is True
     assert _is_surgery_match("대장내시경 조직검사") is False
     assert _is_surgery_match("초음파 검사") is False
+
+
+def test_detail_code_name_surgery_links_to_basic_diagnosis():
+    records = [
+        {
+            "진료시작일": "2023-01-12",
+            "병·의원&약국": "서대전속편한 내과의원",
+            "진단과": "내과",
+            "입원/외래": "외래",
+            "주상병코드": "AK599",
+            "주상병명": "(양방)상 세불명의 기능성장 장애",
+            "내원일수": "1",
+            "총진료비(건강보험적용분)": "752,590",
+            "_ftype": "basic",
+        },
+        {
+            "진료시작일": "2023-01-12",
+            "병·의원&약국": "서대전속편한내과의원",
+            "진료내역": "처치 및수술/처치및 수 술(양방)",
+            "코드명": "절제용SNARE",
+            "_ftype": "detail",
+        },
+        {
+            "진료시작일": "2023-01-12",
+            "병·의원&약국": "서대전속편한내과의원",
+            "진료내역": "처치 및수술/처치및 수 술(양방)",
+            "코드명": "결장경하종양수술-폴립 절제술",
+            "_ftype": "detail",
+        },
+    ]
+
+    stats, hints, *_ = build_disease_stats(records, datetime(2026, 5, 22))
+    assert "K599" in stats
+    assert stats["K599"]["surgery_dates"] == {"2023-01-12"}
+    assert "결장경하종양수술-폴립 절제술" in stats["K599"]["surgeries"]
+    assert "절제용SNARE" not in stats["K599"]["surgeries"]
+    assert any("교차확정" in h and "752,590원" in h for h in hints)
+
+
+def test_detail_dental_extraction_but_not_scaling_is_surgery():
+    records = [
+        {
+            "진료시작일": "2023-06-28",
+            "병·의원&약국": "임성수치과의 원",
+            "진단과": "치주과",
+            "입원/외래": "외래",
+            "주상병코드": "AK0531",
+            "주상병명": "(양방)만 성복합치 주염",
+            "내원일수": "1",
+            "총진료비(건강보험적용분)": "99,090",
+            "_ftype": "basic",
+        },
+        {
+            "진료시작일": "2023-06-28",
+            "병·의원&약국": "임성수치과의원",
+            "진료내역": "처치및수술/수혈(양방)",
+            "코드명": "발치술[1치당]-구치",
+            "_ftype": "detail",
+        },
+        {
+            "진료시작일": "2023-07-04",
+            "병·의원&약국": "임성수치과의 원",
+            "진단과": "치주과",
+            "입원/외래": "외래",
+            "주상병코드": "AK0531",
+            "주상병명": "(양방)만 성복합치 주염",
+            "내원일수": "1",
+            "총진료비(건강보험적용분)": "47,100",
+            "_ftype": "basic",
+        },
+        {
+            "진료시작일": "2023-07-04",
+            "병·의원&약국": "임성수치과의원",
+            "진료내역": "처치 및수술/처치및 수 술(양방)",
+            "코드명": "치석제거[1/3악당]",
+            "_ftype": "detail",
+        },
+    ]
+
+    stats, *_ = build_disease_stats(records, datetime(2026, 5, 22))
+    assert stats["K0531"]["surgery_dates"] == {"2023-06-28"}
+    assert stats["K0531"]["surgeries"] == {"발치술[1치당]-구치"}
+
+
+def test_detail_confirmed_surgery_keyword_variants():
+    records = [
+        {
+            "진료시작일": "2024-05-01",
+            "병·의원&약국": "튼튼정형외과의원",
+            "진단과": "정형외과",
+            "입원/외래": "외래",
+            "주상병코드": "AS5250",
+            "주상병명": "(양방)발의 골절",
+            "내원일수": "1",
+            "총진료비(건강보험적용분)": "610,000",
+            "_ftype": "basic",
+        },
+        {
+            "진료시작일": "2024-05-01",
+            "병·의원&약국": "튼튼정형외과의원",
+            "진료내역": "처치 및수술/처치및 수 술(양방)",
+            "코드명": "관혈적정복술및내고정술",
+            "_ftype": "detail",
+        },
+        {
+            "진료시작일": "2024-05-01",
+            "병·의원&약국": "튼튼정형외과의원",
+            "진료내역": "처치 및수술/처치및 수 술(양방)",
+            "코드명": "FIXATION SCREW",
+            "_ftype": "detail",
+        },
+    ]
+
+    stats, *_ = build_disease_stats(records, datetime(2026, 5, 22))
+    assert stats["S5250"]["surgery_dates"] == {"2024-05-01"}
+    assert "관혈적정복술및내고정술" in stats["S5250"]["surgeries"]
+    assert "FIXATION SCREW" not in stats["S5250"]["surgeries"]
+
+
+def test_detail_low_level_laser_rehab_is_not_surgery():
+    records = [
+        {
+            "진료시작일": "2023-07-25",
+            "병·의원&약국": "가본한의원",
+            "진단과": "정형외과",
+            "입원/외래": "외래",
+            "주상병코드": "AS134",
+            "주상병명": "(양방)경추의 염좌 및 긴장",
+            "내원일수": "1",
+            "총진료비(건강보험적용분)": "24,000",
+            "_ftype": "basic",
+        },
+        {
+            "진료시작일": "2023-07-25",
+            "병·의원&약국": "가본한의원",
+            "진료내역": "이학요법료/재활및물리치료",
+            "코드명": "재활저출력레이저치료[1 일당]",
+            "_ftype": "detail",
+        },
+    ]
+
+    stats, *_ = build_disease_stats(records, datetime(2026, 5, 22))
+    assert stats["S134"]["surgery_dates"] == set()
+    assert stats["S134"]["surgeries"] == set()
+
+
+def test_high_basic_cost_without_surgery_keyword_is_surgery_suspected():
+    records = [
+        {
+            "진료시작일": "2024-01-15",
+            "병·의원&약국": "서울내과의원",
+            "진단과": "내과",
+            "입원/외래": "외래",
+            "주상병코드": "AK210",
+            "주상병명": "(양방)위-식도역류병",
+            "내원일수": "1",
+            "총진료비(건강보험적용분)": "550,000",
+            "_ftype": "basic",
+        }
+    ]
+
+    stats, hints, *_ = build_disease_stats(records, datetime(2026, 5, 22))
+    assert stats["K210"]["surgery_dates"] == set()
+    assert stats["K210"]["surgery_suspected_dates"] == {"2024-01-15"}
+    assert any("수술의심" in h and "550,000원" in h for h in hints)
 
 
 def test_normalize_code_keeps_kcd_only():
