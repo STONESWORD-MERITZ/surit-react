@@ -195,7 +195,9 @@ function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
   return (
     <section data-tour="summary" className="mb-5 overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between px-5 py-4 text-left"
       >
         <div>
@@ -395,7 +397,7 @@ function DisclosureSection({
       {memo && (
         <section data-tour="copy" className="mb-4 overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
           <div className="flex items-center justify-between gap-3 px-5 py-4">
-            <button onClick={() => setMemoOpen(!memoOpen)} className="text-left text-sm font-bold text-gray-800">
+            <button type="button" onClick={() => setMemoOpen(!memoOpen)} aria-expanded={memoOpen} className="text-left text-sm font-bold text-gray-800">
               {copy.memoLabel}
               <span className="ml-2 text-xs text-gray-400">{memoOpen ? "접기" : "펼치기"}</span>
             </button>
@@ -424,7 +426,7 @@ function DisclosureSection({
                   <span className="shrink-0 rounded-[8px] bg-[#4F46E5] px-2.5 py-1 text-xs font-bold text-white">
                     {qNum}
                   </span>
-                  <span className="text-sm font-bold text-gray-800">{cleanQTitle(qTitle)}</span>
+                  <h3 className="text-sm font-bold text-gray-800">{cleanQTitle(qTitle)}</h3>
                 </div>
                 <div className="divide-y divide-gray-50">
                   {[...items].sort((a, b) => {
@@ -494,7 +496,7 @@ function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMod
       )}
 
       <div className="mb-5 rounded-[8px] bg-white p-5 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-        <p className="text-xs font-bold text-[#4F46E5]">{copy.resultTitle}</p>
+        <h2 className="text-xs font-bold text-[#4F46E5]">{copy.resultTitle}</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-4">
           <Metric label="건강체 고지" value={`${stdCount}건`} tone={stdCount ? "text-amber-600" : "text-emerald-600"} />
           <Metric label="간편심사 고지" value={`${easyCount}건`} tone={easyCount ? "text-amber-600" : "text-emerald-600"} />
@@ -506,7 +508,7 @@ function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMod
       <AllDiseaseSection diseases={result.all_disease_summary} />
 
       <section className="mb-5 overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-        <div className="flex border-b border-gray-100">
+        <div role="tablist" aria-label="심사 유형" className="flex border-b border-gray-100">
           {(["standard", "easy"] as const).map((tab) => {
             const label = tab === "standard" ? "건강체/표준체" : "간편심사";
             const count = tab === "standard" ? stdCount : easyCount;
@@ -514,6 +516,9 @@ function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMod
             return (
               <button
                 key={tab}
+                type="button"
+                role="tab"
+                aria-selected={active}
                 onClick={() => setProductTab(tab)}
                 className={`relative flex-1 py-3.5 text-sm font-bold transition-all ${
                   active ? "text-[#4F46E5]" : "text-gray-400 hover:text-gray-600"
@@ -533,7 +538,7 @@ function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMod
           })}
         </div>
 
-        <div className="p-4">
+        <div role="tabpanel" className="p-4">
           <DisclosureSection
             reports={activeReports}
             memo={activeMemo}
@@ -640,6 +645,14 @@ function TourOverlay({
   const isLast = index === steps.length - 1;
 
   useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onSkip();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onSkip]);
+
+  useEffect(() => {
     const target = document.querySelector<HTMLElement>(`[data-tour="${step.target}"]`);
     if (!target) {
       const emptyTimer = window.setTimeout(() => setRect(null), 0);
@@ -694,6 +707,9 @@ function TourOverlay({
       )}
 
       <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="사용 안내 튜토리얼"
         className={`fixed rounded-[8px] bg-white p-5 shadow-[0_22px_70px_rgba(15,23,42,0.3)] ${
           cardStyle ? "" : "left-1/2 top-1/2 w-[min(360px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2"
         }`}
@@ -787,6 +803,15 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
     const files = fileRef.current?.files;
     if (!files?.length) {
       setError("PDF 파일을 업로드해 주세요.");
+      return;
+    }
+    if (files.length > 6) {
+      setError("PDF는 최대 6개까지 업로드할 수 있습니다.");
+      return;
+    }
+    const nonPdf = Array.from(files).find((f) => !f.name.toLowerCase().endsWith(".pdf"));
+    if (nonPdf) {
+      setError(`PDF 파일만 업로드할 수 있어요. (${nonPdf.name})`);
       return;
     }
     if (!consent) {

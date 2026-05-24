@@ -65,11 +65,11 @@ export default function Signup() {
           />
           <input
             type="password"
-            placeholder="비밀번호 6자 이상"
+            placeholder="비밀번호 10자 이상"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={6}
+            minLength={10}
             className="w-full rounded-[8px] bg-white px-4 py-3 text-sm text-gray-800 shadow-[0_1px_3px_rgba(0,0,0,0.06)] placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/30"
           />
 
