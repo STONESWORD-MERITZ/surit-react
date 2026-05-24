@@ -302,14 +302,14 @@ def _build_health(
 
         # ── Q1 룰 ──
 
-        # R-H-Q1-DIAG-3M: 3개월 이내 확정진단 (입원/수술 없을 때)
+        # R-H-Q1-DIAG-3M: 3개월 이내 진단 기록 (입원/수술 없을 때)
         fd_dt = _parse_ymd(fd)
         if (fd_dt and fd_dt >= d3m
                 and not inp_3m and not surg_3m
                 and (visit_3m or fd_dt <= reference_date)):
             items.append(ci(
                 q="Q1", rule_id="R-H-Q1-DIAG-3M",
-                reason=f"3개월 이내 확정진단: {nm} ({dc})",
+                reason=f"3개월 이내 진단 기록: {nm} ({dc})",
                 date=fd, weight=wt,
                 visit_count=visit_3m_count, med_days=presc_3m,
                 evidence={"first_date": fd, "code": dc},
@@ -319,7 +319,7 @@ def _build_health(
         if inp_3m:
             items.append(ci(
                 q="Q1", rule_id="R-H-Q1-INP-3M",
-                reason=f"3개월 이내 입원 ({inp3m_days}일) — 기본진료 확정",
+                reason=f"3개월 이내 입원 ({inp3m_days}일) — 기본진료 확인",
                 date=max(inp_3m), weight=wt,
                 is_inpatient=True, inpatient_days=inp3m_days,
                 inpatient_count=len(inp_3m),
@@ -331,7 +331,7 @@ def _build_health(
         if surg_3m:
             items.append(ci(
                 q="Q1", rule_id="R-H-Q1-SURG-3M",
-                reason=f"3개월 이내 수술: {sn or '수술'} — 세부진료 확정",
+                reason=f"3개월 이내 수술: {sn or '수술'} — 세부진료 확인",
                 date=max(surg_3m), weight=wt,
                 is_surgery=True, surgery_name=sn,
                 visit_count=visit_3m_count, med_days=presc_3m,
@@ -370,7 +370,7 @@ def _build_health(
         if inp_10y:
             items.append(ci(
                 q="Q3", rule_id="R-H-Q3-INP-10Y",
-                reason=f"10년 이내 입원 ({inp10y_days}일) — 기본진료 확정",
+                reason=f"10년 이내 입원 ({inp10y_days}일) — 기본진료 확인",
                 date=max(inp_10y), weight=wt,
                 is_inpatient=True, inpatient_days=inp10y_days,
                 inpatient_count=len(inp_10y),
@@ -382,7 +382,7 @@ def _build_health(
         if surg_10y:
             items.append(ci(
                 q="Q3", rule_id="R-H-Q3-SURG-10Y",
-                reason=f"10년 이내 수술: {sn or '수술'} — 세부진료 확정",
+                reason=f"10년 이내 수술: {sn or '수술'} — 세부진료 확인",
                 date=max(surg_10y), weight=wt,
                 is_surgery=True, surgery_name=sn,
                 is_inpatient=bool(inp_10y), inpatient_days=inp10y_days,
@@ -395,7 +395,7 @@ def _build_health(
         if visit_10y_count >= 7:
             items.append(ci(
                 q="Q3", rule_id="R-H-Q3-VISIT-7",
-                reason=f"10년 이내 7회 이상 통원 ({visit_10y_count}회) — 기본진료 확정",
+                reason=f"10년 이내 7회 이상 통원 ({visit_10y_count}회) — 기본진료 확인",
                 date=ld, weight=wt,
                 visit_count=visit_10y_count, med_days=presc_10y,
                 evidence={"visit_count": visit_10y_count, "dates": visit_10y},
@@ -405,7 +405,7 @@ def _build_health(
         if presc_10y >= 30:
             items.append(ci(
                 q="Q3", rule_id="R-H-Q3-MED-30D",
-                reason=f"10년 이내 30일 이상 투약 ({presc_10y}일) — 처방조제 확정",
+                reason=f"10년 이내 30일 이상 투약 ({presc_10y}일) — 처방조제 확인",
                 date=ld, weight=wt,
                 visit_count=visit_10y_count, med_days=presc_10y,
                 evidence={"presc_days": presc_10y, "source": "처방조제"},
@@ -485,14 +485,14 @@ def _build_easy(
 
         # ── Q1 룰 ──
 
-        # R-E-Q1-DIAG-3M: 3개월 이내 확정진단 (입원/수술 없을 때)
+        # R-E-Q1-DIAG-3M: 3개월 이내 진단 기록 (입원/수술 없을 때)
         fd_dt = _parse_ymd(fd)
         if (fd_dt and fd_dt >= d3m
                 and not inp_3m and not surg_3m
                 and (visit_3m or fd_dt <= reference_date)):
             items.append(ci(
                 q="Q1", rule_id="R-E-Q1-DIAG-3M",
-                reason=f"3개월 이내 확정진단: {nm} ({dc})",
+                reason=f"3개월 이내 진단 기록: {nm} ({dc})",
                 date=fd, weight=wt,
                 visit_count=visit_3m_count, med_days=presc_3m,
                 evidence={"first_date": fd, "code": dc},
@@ -502,7 +502,7 @@ def _build_easy(
         if inp_3m:
             items.append(ci(
                 q="Q1", rule_id="R-E-Q1-INP-3M",
-                reason=f"3개월 이내 입원 ({inp3m_days}일) — 기본진료 확정",
+                reason=f"3개월 이내 입원 ({inp3m_days}일) — 기본진료 확인",
                 date=max(inp_3m), weight=wt,
                 is_inpatient=True, inpatient_days=inp3m_days,
                 inpatient_count=len(inp_3m),
@@ -514,7 +514,7 @@ def _build_easy(
         if surg_3m:
             items.append(ci(
                 q="Q1", rule_id="R-E-Q1-SURG-3M",
-                reason=f"3개월 이내 수술: {sn or '수술'} — 세부진료 확정",
+                reason=f"3개월 이내 수술: {sn or '수술'} — 세부진료 확인",
                 date=max(surg_3m), weight=wt,
                 is_surgery=True, surgery_name=sn,
                 visit_count=visit_3m_count, med_days=presc_3m,
@@ -541,7 +541,7 @@ def _build_easy(
         if inp_10y:
             items.append(ci(
                 q="Q2", rule_id="R-E-Q2-INP-10Y",
-                reason=f"10년 이내 입원 ({inp10y_days}일) — 기본진료 확정",
+                reason=f"10년 이내 입원 ({inp10y_days}일) — 기본진료 확인",
                 date=max(inp_10y), weight=wt,
                 is_inpatient=True, inpatient_days=inp10y_days,
                 inpatient_count=len(inp_10y),
@@ -553,7 +553,7 @@ def _build_easy(
         if surg_10y:
             items.append(ci(
                 q="Q2", rule_id="R-E-Q2-SURG-10Y",
-                reason=f"10년 이내 수술: {sn or '수술'} — 세부진료 확정",
+                reason=f"10년 이내 수술: {sn or '수술'} — 세부진료 확인",
                 date=max(surg_10y), weight=wt,
                 is_surgery=True, surgery_name=sn,
                 is_inpatient=bool(inp_10y), inpatient_days=inp10y_days,

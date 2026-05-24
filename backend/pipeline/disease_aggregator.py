@@ -198,6 +198,7 @@ def build_disease_stats(
     date_parse_fail_count = 0
     date_parse_fail_samples: list[str] = []
     future_date_count = 0
+    empty_date_count = 0
 
     for _, row in df.iterrows():
         ftype = str(row.get("_ftype", "unknown"))
@@ -278,10 +279,15 @@ def build_disease_stats(
             continue
 
         clean_date = parse_date(date_str)
-        if date_str and not clean_date:
-            date_parse_fail_count += 1
-            if len(date_parse_fail_samples) < 5:
-                date_parse_fail_samples.append(date_str[:30])
+        if not clean_date:
+            if (date_str or "").strip():
+                # 값은 있으나 날짜로 인식 불가
+                date_parse_fail_count += 1
+                if len(date_parse_fail_samples) < 5:
+                    date_parse_fail_samples.append(date_str[:30])
+            else:
+                # 진료일자 칸이 비어 있는 행 — 기간 판정에서 조용히 빠지므로 집계
+                empty_date_count += 1
 
         s = disease_stats[group_key]
 
@@ -575,6 +581,11 @@ def build_disease_stats(
     if future_date_count > 0:
         date_warnings.append(
             f"⚠️ 미래 날짜 {future_date_count}건 감지 (OCR 오류 가능) — 해당 레코드를 제외했습니다."
+        )
+    if empty_date_count > 0:
+        date_warnings.append(
+            f"⚠️ 진료일자 없는 레코드 {empty_date_count}건 — 날짜 칸이 비어 있어 "
+            f"기간(3개월·1년·5년·10년) 판정에서 제외됐습니다. 원본 PDF에서 직접 확인해 주세요."
         )
 
     # ── AI 전달용 raw_entries 빌드 (같은 df 재사용) ──────────────

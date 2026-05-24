@@ -210,7 +210,7 @@ function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
       {open && (
         <div className="border-t border-gray-100">
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[680px] text-xs">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
                   <th className="px-4 py-2.5 text-left">코드</th>

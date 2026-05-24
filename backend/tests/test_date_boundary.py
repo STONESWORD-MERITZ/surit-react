@@ -147,3 +147,24 @@ def test_today_dated_row_kept_by_aggregator():
               if s.get("has_pharma") or k.startswith("PHARMA|")]
     total_seen = sum(len(s.get("_pharma_seen", set())) for s in groups)
     assert total_seen == 1, "오늘 일자 행이 잘못 드롭됨"
+
+
+# ── 진료일자 빈 행 경고 (감사: 조용한 누락 방지) ─────────────────────────────
+def test_empty_date_row_emits_warning():
+    """진료일자 칸이 빈 행은 date_warnings 에 경고로 노출된다."""
+    records = [
+        _prow("", "베포리진정", 3, "A의원"),       # 날짜 없음 — 경고 대상
+        _prow(_ymd(10), "베포리진정", 3, "A의원"),  # 정상
+    ]
+    _ds, _hints, date_warnings, *_ = build_disease_stats(records, TODAY)
+    assert any("진료일자 없는" in w for w in date_warnings), (
+        f"빈 날짜 경고가 없음: {date_warnings}"
+    )
+
+
+def test_all_dates_present_no_empty_warning():
+    """모든 행에 날짜가 있으면 빈 날짜 경고는 나오지 않는다."""
+    records = [_prow(_ymd(10), "베포리진정", 3, "A의원")]
+    _ds, _hints, date_warnings, *_ = build_disease_stats(records, TODAY)
+    assert not any("진료일자 없는" in w for w in date_warnings), date_warnings
+

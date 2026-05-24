@@ -138,6 +138,25 @@ def parse_nhis_text(text, fname):
     return records
 
 
+def _empty_result_message(fname: str, n_pages: int, first_text: str) -> str:
+    """PDF가 정상적으로 열렸으나 진료 레코드가 0건일 때 원인별 안내.
+
+    비밀번호 문제로 오인되지 않도록 '비밀번호'를 언급하지 않는다.
+    """
+    if n_pages == 0:
+        return f"⚠️ {fname}: 페이지가 없는 빈 PDF입니다."
+    if not (first_text or "").strip():
+        return (
+            f"🖼️ {fname}: 이미지로만 구성된 PDF로 보입니다 (텍스트 인식 불가). "
+            f"심평원에서 '파일'로 직접 내려받은 PDF를 사용해 주세요 — "
+            f"스캔본·사진·캡처본은 분석할 수 없습니다."
+        )
+    return (
+        f"⚠️ {fname}: PDF는 열렸으나 인식 가능한 진료 표를 찾지 못했습니다. "
+        f"심평원 '진료받은내역' 또는 '건강보험 요양급여내역' PDF가 맞는지 확인해 주세요."
+    )
+
+
 def parse_single_pdf(uploaded_file, birthdate_pw) -> dict:
     """PDF 1개 파싱. pdfplumber 동기 I/O."""
     fname = getattr(uploaded_file, "name", None) or getattr(uploaded_file, "filename", None) or "unknown.pdf"
@@ -180,6 +199,11 @@ def parse_single_pdf(uploaded_file, birthdate_pw) -> dict:
                             rec["_fname"] = fname
                             file_recs.append(rec)
                     del tables
+
+            if not file_recs:
+                parse_errors_local.append(
+                    _empty_result_message(fname, len(pdf.pages), first_text)
+                )
     except ValueError as e:
         parse_errors_local.append(f"🔒 {fname}: {e}")
     except Exception as e:

@@ -99,7 +99,14 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         parse_errors.extend(pr["parse_errors"])
 
     if not all_records:
-        raise AnalysisError("PDF에서 데이터를 추출하지 못했습니다. 파일 형식이나 비밀번호를 확인해 주세요.")
+        if parse_errors:
+            raise AnalysisError(
+                "PDF에서 진료 데이터를 추출하지 못했습니다.\n" + "\n".join(parse_errors)
+            )
+        raise AnalysisError(
+            "PDF에서 진료 데이터를 추출하지 못했습니다. "
+            "심평원에서 발급한 진료내역 PDF가 맞는지 확인해 주세요."
+        )
 
     # ── disease_stats + raw_entries 빌드 ─────────────────────────
     disease_stats, cross_surgery_hints, date_warnings, raw_entries, lines_by_file = \
