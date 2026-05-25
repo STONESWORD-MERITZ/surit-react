@@ -8,6 +8,20 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 ## Released
 
+- `backend/filters.py` - Codex - SURIT-005 verification/publish - 2026-05-26 released
+- `backend/pipeline/helpers.py` - Codex - SURIT-005 verification/publish - 2026-05-26 released
+- `backend/tests/` - Codex - SURIT-005 verification/publish - 2026-05-26 released
+- `.agent-harness/handoff.md` - Codex - SURIT-005 handoff update - 2026-05-26 released
+- `.agent-harness/locks.md` - Codex - SURIT-005 lock release - 2026-05-26 released
+- `.agent-harness/tasks/SURIT-005-date-window-centralize.md` — Claude (Cowork) · SURIT-005 · 2026-05-25 해제
+- `backend/filters.py` — Claude (Cowork) · SURIT-005 · 2026-05-25 해제
+- `backend/pipeline/helpers.py` — Claude (Cowork) · SURIT-005 · 2026-05-25 해제
+- `backend/analyzer.py` — Claude (Cowork) · SURIT-005 · 2026-05-25 해제 (미수정)
+- `backend/pipeline/result_builder.py` — Claude (Cowork) · SURIT-005 · 2026-05-25 해제 (미수정)
+- `backend/pipeline/disease_aggregator.py` — Claude (Cowork) · SURIT-005 · 2026-05-25 해제 (미수정)
+- `backend/meritz_easy_rules.py` — Claude (Cowork) · SURIT-005 · 2026-05-25 해제 (미수정)
+- `backend/tests/` — Claude (Cowork) · SURIT-005 · 2026-05-25 해제
+
 - `backend/filters.py` - Codex - SURIT-004 verification/publish - 2026-05-25 released
 - `backend/pipeline/helpers.py` - Codex - SURIT-004 verification/publish - 2026-05-25 released
 - `backend/analyzer.py` - Codex - SURIT-004 verification/publish - 2026-05-25 released

@@ -21,6 +21,9 @@ import re as _re
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
+# SURIT-005: 날짜 창 로직 중앙화 — _dts_in_range 는 helpers.py 정본을 import
+from pipeline.helpers import _dts_in_range
+
 # ── keywords.json 로딩 ────────────────────────────────
 _KW_PATH = os.path.join(os.path.dirname(__file__), "keywords.json")
 
@@ -36,7 +39,9 @@ SIMPLE_Q3_ALLOWED_PREFIXES = tuple(_KW["simple_q3_allowed_prefixes"])
 NON_DISEASE_CODE_PREFIXES  = tuple(_KW.get("non_disease_code_prefixes", []))
 
 
-# ── 공유 헬퍼 (analyzer.py와 동일 로직, 순환 임포트 방지를 위해 인라인) ──
+# ── 공유 헬퍼 (helpers.py 와 동일 로직의 인라인 동본) ──
+# SURIT-005: _dts_in_range 는 helpers.py 정본 import 로 중앙화함(상단 import 참조).
+#            아래 헬퍼들은 인라인 동본으로 유지한다.
 
 def _code_in(code, prefixes) -> bool:
     if code is None:
@@ -58,17 +63,6 @@ def _subtract_years(d, years: int):
         return d.replace(year=d.year - years)
     except ValueError:
         return d.replace(year=d.year - years, month=2, day=28)
-
-
-def _dts_in_range(date_set, since_dt) -> list[str]:
-    result = []
-    for d in date_set:
-        try:
-            if d and datetime.strptime(d, "%Y-%m-%d") >= since_dt:
-                result.append(d)
-        except ValueError:
-            pass
-    return sorted(result)
 
 
 def _visit_count_in_range(stat: dict[str, Any], since_dt) -> int:

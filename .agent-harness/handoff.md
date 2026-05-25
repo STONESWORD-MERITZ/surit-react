@@ -18,6 +18,44 @@
 
 Use newest entries at the top.
 
+## 2026-05-26 18:25 Codex SURIT-005
+### Changed
+- `backend/filters.py` 검증 완료: 인라인 `_dts_in_range` 제거, `pipeline.helpers._dts_in_range` import로 전환.
+- `backend/pipeline/helpers.py` 검증 완료: `_dts_in_range` 단일 정본 docstring 보강.
+- `backend/tests/test_date_window_centralize.py` 회귀 테스트 5건 확인.
+- `.agent-harness/tasks/SURIT-005-date-window-centralize.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md` 하네스 기록 정리.
+### Verified
+- [x] `cd backend && python -m pytest -q` - 112 passed
+- [x] `_dts_in_range` 중앙화 테스트 5건 확인: 단일 출처(`is` 동일성), 경계 포함(`>=`), 경계 외 제외, 윤년 포함 구간, 무효값 무시
+- [x] `backend/filters.py` - `_dts_in_range` 인라인 정의 없음, `from pipeline.helpers import _dts_in_range` 전환 확인
+- [x] `git status --short -uall` - allowed scope only before commit (`backend/filters.py`, `backend/pipeline/helpers.py`, `backend/tests/*`, `.agent-harness/*`)
+- [x] `git push origin main` - completed by Codex publish step
+### Notes
+- Cowork 권장 후속: 나머지 인라인 헬퍼(`_code_in`, `_subtract_years`, `_visit_count_in_range`, `_parse_ymd`, `_max_presc`) 정리/중앙화는 별도 태스크가 적절함.
+- 범위 외 변경은 발견하지 못함.
+### Next
+- Human: final review.
+- SURIT-006 candidate: 나머지 인라인 헬퍼 정리 및 순환 import 위험 재점검.
+
+## 2026-05-25 14:47 Claude SURIT-005
+### Changed
+- `backend/pipeline/helpers.py` — `_dts_in_range`에 정본 docstring 추가 (날짜 창 멤버십 단일 진입점 명시).
+- `backend/filters.py` — 인라인 `_dts_in_range` 중복 정의 제거, `from pipeline.helpers import _dts_in_range` 로 전환. "공유 헬퍼" 섹션 주석 갱신.
+- `backend/tests/test_date_window_centralize.py` — `_dts_in_range` 중앙화 회귀 테스트 5건 신규.
+- `.agent-harness/tasks/SURIT-005-date-window-centralize.md` — 태스크 파일 신규 생성.
+### Verified
+- [x] `cd backend && python -m pytest -q` — 112 passed (기존 107 + 신규 5)
+- [x] `git status --short` — SURIT-005 변경은 `filters.py`·`helpers.py`·신규 테스트뿐. 그 외 모든 파일 HEAD와 동일(부수 변경 0).
+- [ ] npm lint/test/build — 해당 없음 (백엔드 전용 변경)
+### Notes
+- **1단계 진단:** `_dts_in_range`는 `helpers.py:340`(정본)과 `filters.py`(인라인 동본 — 본문 완전 동일, `-> list[str]` 주석만 차이) 2곳 정의. `analyzer.py`·`result_builder.py`는 이미 `helpers`에서 import. `filters.py`는 `_dts_in_range` 외 `_code_in`·`_subtract_years`·`_visit_count_in_range`·`_parse_ymd`·`_max_presc`도 인라인하는 "공유 헬퍼" 섹션 보유(과거 analyzer↔filters 순환 회피 잔재).
+- **순환 임포트 판정:** `pipeline/__init__.py`는 빈 마커, `helpers.py`는 표준 라이브러리·pandas만 import → `filters → pipeline.helpers` 순환 없음. 인라인 유지 불필요 → import 전환(태스크 2단계 기본 경로).
+- 본 태스크 범위인 `_dts_in_range`만 import 전환. 나머지 인라인 헬퍼는 SURIT-005 범위 밖이라 유지 — "공유 헬퍼" 섹션 전체 중앙화는 후속 태스크 권장.
+- 기존 동작(경계 포함 `>=`) 불변. `test_date_boundary.py`의 `test_dts_in_range_helpers_and_filters_identical`은 이제 동일 객체 비교가 되어 자명히 통과.
+- 작업 중 마운트 캐시 churn으로 다수 백엔드 파일이 찢어진 상태로 동기화 → git HEAD 기준으로 전 파일 일괄 재기록(SURIT-005 편집분만 재적용)해 정합화 후 검증. `git status` 로 SURIT-005 외 파일 변경 없음 확정.
+### Next
+- Codex: SURIT-005 검증 + 푸시 — `cd backend && python -m pytest -q`(112) 재확인, `backend/filters.py`·`backend/pipeline/helpers.py`·`backend/tests/test_date_window_centralize.py` + 태스크 파일 커밋·푸시.
+
 ## 2026-05-25 20:42 Codex SURIT-004
 ### Changed
 - `backend/filters.py`, `backend/pipeline/helpers.py`, `backend/analyzer.py`, `backend/pipeline/result_builder.py`, `backend/pipeline/disease_aggregator.py`, `backend/meritz_easy_rules.py` 검증 및 보강.

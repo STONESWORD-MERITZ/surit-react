@@ -338,6 +338,10 @@ def _code_in(code, prefixes):
 
 
 def _dts_in_range(date_set, since_dt):
+    """날짜 집합에서 since_dt 이후(경계 포함, >=) 날짜만 정렬해 반환 — 날짜 창 멤버십 정본.
+
+    SURIT-005: 분석 전 모듈의 단일 진입점. filters.py 도 이 함수를 import 한다.
+    """
     result = []
     for d in date_set:
         try:
