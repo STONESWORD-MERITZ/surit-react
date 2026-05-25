@@ -19,6 +19,7 @@ from .helpers import (
     _is_surgery_match,
     _keep_basic_general_row,
     _sorted_strings,
+    _subtract_years,
     _to_int_cost,
     disclosure_group_code,
     disclosure_group_name,
@@ -591,7 +592,7 @@ def build_disease_stats(
     # ── AI 전달용 raw_entries 빌드 (같은 df 재사용) ──────────────
     raw_entries: list[tuple[str, str]] = []
     seen_code_dates: set = set()
-    _d10y_dt = today - __import__("datetime").timedelta(days=3650)
+    _d10y_dt = _subtract_years(today, 10)   # SURIT-004: 달력 기준 10년
 
     for _, row in df.iterrows():
         if row_is_junk(row): continue

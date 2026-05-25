@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import Any
 
+from pipeline.helpers import _subtract_years  # SURIT-004: 달력 기준 윤년 보정 헬퍼
+
 # ──────────────────────────────────────────────────────────────
 # 룰 테이블
 # 각 항목: (코드시작, 코드끝, 경과일수, 입원일수제한, 입원횟수제한, 수술기준)
@@ -214,7 +216,7 @@ def evaluate_disease(
     start, end, elapsed_days, hosp_days_limit, hosp_count_limit, surg_limit = rule
     rule_range = f"{start}~{end}" if start != end else start
 
-    ten_years_ago = reference_date - timedelta(days=3650)
+    ten_years_ago = _subtract_years(reference_date, 10)   # SURIT-004: 달력 기준 10년
 
     # --- 1) 경과기간 체크 ---
     # 치료종결일(latest_date) + 경과기간 이후여야 인수 가능
@@ -327,7 +329,7 @@ def _compute_recommended_disclosure(
         return None
 
     _, _, elapsed_days, hosp_days_limit, hosp_count_limit, surg_limit = rule
-    ten_years_ago = reference_date - timedelta(days=3650)
+    ten_years_ago = _subtract_years(reference_date, 10)   # SURIT-004: 달력 기준 10년
 
     # 입원 기록 수집 (날짜, 실제 입원일수)
     inpatient_dates = disease_stat.get("inpatient_dates", set())
@@ -410,7 +412,7 @@ def evaluate_meritz_easy(
     exception_results: list[dict] = []
     rejected_results: list[dict] = []
 
-    ten_years_ago = reference_date - timedelta(days=3650)
+    ten_years_ago = _subtract_years(reference_date, 10)   # SURIT-004: 달력 기준 10년
 
     for group_key, stat in disease_stats.items():
         code = stat.get("diag_code", "") or group_key

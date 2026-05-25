@@ -35,6 +35,7 @@ from pipeline.helpers import (
     parse_date,
     row_is_junk,
     _is_surgery_match,
+    _subtract_years,
     HEALTH_Q5_CODES,
     SIMPLE_Q3_CODES,
 )
@@ -105,8 +106,8 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
     today = datetime(reference_date.year, reference_date.month, reference_date.day)
     _d3m_dt  = today - timedelta(days=90)
     _d1y_dt  = today - timedelta(days=365)
-    _d5y_dt  = today - timedelta(days=1825)
-    _d10y_dt = today - timedelta(days=3650)
+    _d5y_dt  = _subtract_years(today, 5)    # SURIT-004: 달력 기준 5년
+    _d10y_dt = _subtract_years(today, 10)   # SURIT-004: 달력 기준 10년
     all_records = []
     parse_errors = []
     retry_warnings = []
@@ -166,8 +167,8 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
     today_str = today.strftime('%Y-%m-%d')
     d_3m  = (today - timedelta(days=90)).strftime('%Y-%m-%d')
     d_1y  = (today - timedelta(days=365)).strftime('%Y-%m-%d')
-    d_5y  = (today - timedelta(days=1825)).strftime('%Y-%m-%d')
-    d_10y = (today - timedelta(days=3650)).strftime('%Y-%m-%d')
+    d_5y  = _subtract_years(today, 5).strftime('%Y-%m-%d')    # SURIT-004: 달력 기준 5년
+    d_10y = _subtract_years(today, 10).strftime('%Y-%m-%d')   # SURIT-004: 달력 기준 10년
 
     drug_change_text = ""
     if drug_change_summary:
@@ -218,13 +219,15 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
             filtered_entries.append((fname_row, line))
             continue
         days_ago = (today - dt).days
-        if days_ago < 0 or days_ago > 3650:
+        # SURIT-004: 5년/10년 경계는 윤년 보정 위해 달력 기준 컷오프와 비교한다.
+        # 3개월/1년은 윤년 영향이 없어 일수(days_ago) 비교를 유지한다.
+        if days_ago < 0 or dt < _d10y_dt:
             continue
         tags = []
         if days_ago <= 90:   tags.append("IN_3M")
         if days_ago <= 365:  tags.append("IN_1Y")
-        if days_ago <= 1825: tags.append("IN_5Y")
-        if days_ago <= 3650: tags.append("IN_10Y")
+        if dt >= _d5y_dt:    tags.append("IN_5Y")
+        if dt >= _d10y_dt:   tags.append("IN_10Y")
         filtered_entries.append((fname_row, line + " [" + ",".join(tags) + "]"))
 
     filtered_lines = [t[1] for t in filtered_entries]

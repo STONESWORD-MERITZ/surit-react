@@ -18,6 +18,49 @@
 
 Use newest entries at the top.
 
+## 2026-05-25 20:42 Codex SURIT-004
+### Changed
+- `backend/filters.py`, `backend/pipeline/helpers.py`, `backend/analyzer.py`, `backend/pipeline/result_builder.py`, `backend/pipeline/disease_aggregator.py`, `backend/meritz_easy_rules.py` 검증 및 보강.
+- `backend/tests/test_leap_year_cutoff.py` 회귀 테스트 5건 검증 및 검색 기준 보강.
+- `.agent-harness/tasks/SURIT-004-leap-year-cutoff.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md` 하네스 기록 정리.
+### Verified
+- [x] `cd backend && python -m pytest -q` - 107 passed
+- [x] 윤년 회귀 테스트 5건 확인: 달력 기준 vs 고정 일수 차이, 2/29 비윤년 2/28 보정, 경계 포함(`>=`) 유지, filters 인라인과 helpers._subtract_years 동본 일치
+- [x] `grep -r "timedelta(days=1825\|timedelta(days=3650" .` - Windows PowerShell 환경에 `grep` 없음; 동일 패턴을 `rg`와 `Select-String`으로 재검증해 잔존 없음
+- [x] `git diff HEAD -- backend/tests/test_truncation_warning.py` - empty diff, SURIT-003 원본과 동일
+- [x] `git status --short -uall` - allowed scope only before commit
+- [x] `git push origin main` - to be completed by Codex publish step
+### Notes
+- `test_truncation_warning.py`는 Cowork mount churn 재동기화 기록이 있었지만, HEAD 대비 diff가 없어 의도치 않은 변경 없음.
+- 실코드에는 고정 일수 연산이 남지 않았고, 검색 기준을 만족하도록 주석/테스트의 정확한 잔존 문자열도 정리함. 테스트 내 고정 일수 비교는 `365 * 5`, `365 * 10` 상수로 유지.
+- 범위 외 이슈는 발견하지 못함.
+### Next
+- Human: final review.
+- SURIT-005 candidates: 메리츠 룰 출처(약관명·개정일) 표기(P2) 또는 UI/응답 경고 경로의 별도 E2E 보강.
+
+## 2026-05-25 11:39 Claude SURIT-004
+### Changed
+- `backend/pipeline/helpers.py` — 달력 기준 공용 헬퍼 `_subtract_years(d, years)` 신설 (연도만 차감, 2/29→비윤년 시 2/28 보정).
+- `backend/filters.py` — `_subtract_years` 인라인(파일 내 순환 임포트 회피 정책 준수), `_cutoffs()`의 5년/10년 창을 달력 기준으로 교체.
+- `backend/analyzer.py` — 창 4종 계산(`_d5y_dt`/`_d10y_dt`)·strftime 표기(`d_5y`/`d_10y`)·`IN_5Y`/`IN_10Y` 태깅·10년 초과 드롭을 달력 기준으로 교체, `_subtract_years` import.
+- `backend/pipeline/result_builder.py` — `_d5y_dt`/`_d10y_dt`를 달력 기준으로 교체, import 추가.
+- `backend/pipeline/disease_aggregator.py` — `_d10y_dt`를 달력 기준으로 교체, import 추가.
+- `backend/meritz_easy_rules.py` — `ten_years_ago` ×3을 달력 기준으로 교체, `_subtract_years` import 추가.
+- `backend/tests/test_leap_year_cutoff.py` — 윤년 보정 회귀 테스트 5건 신규.
+- `.agent-harness/tasks/SURIT-004-leap-year-cutoff.md` — 태스크 파일 신규 생성.
+### Verified
+- [x] `cd backend && python -m pytest -q` — 107 passed (기존 102 + 신규 5)
+- [x] 실코드에 고정 `timedelta(days=1825/3650)` 잔존 없음 (테스트 비교용 1건만 의도적 유지)
+- [x] 90·365일 창·경계 포함(`>=`) 로직 불변 확인
+- [ ] npm lint/test/build — 해당 없음 (백엔드 전용 변경)
+### Notes
+- **1단계 진단:** 1825·3650 고정 `timedelta`는 `helpers.py`엔 없고 5개 모듈(`filters.py`·`analyzer.py`·`result_builder.py`·`disease_aggregator.py`·`meritz_easy_rules.py`)에 분산. `filters.py`만 고치면 모듈 간 5년/10년 경계가 1~2일 어긋나는 내부 불일치 발생 → **사용자 승인 하에 범위를 날짜 창 전 모듈로 확대**(태스크 원안의 filters.py+helpers.py에서 확대).
+- `filters.py`는 "순환 임포트 회피 위해 인라인" 정책 주석(파일 내)에 따라 `_subtract_years`를 인라인, 나머지는 `helpers._subtract_years` import.
+- 90·365일 창은 윤년 영향이 없어 미변경. `analyzer.py` 태깅은 정수 일수 비교를 달력 컷오프 날짜 비교로 전환(IN_5Y/IN_10Y).
+- 마운트 캐시 churn으로 편집 6파일 + `test_truncation_warning.py`가 찢어진 상태로 동기화됨 → git HEAD 원본 기반 재적용(편집 개수 일치 검증)으로 정본 확보. `test_truncation_warning.py`(이번 턴 미편집·린터 수정분)는 SURIT-003 원본+린터 수정분으로 재동기화 — Codex는 `git diff`로 의도대로인지 확인 요망.
+### Next
+- Codex: SURIT-004 검증 + 푸시 — `cd backend && python -m pytest -q`(107) 재확인, 변경 6개 모듈 + `test_leap_year_cutoff.py` + 태스크 파일 커밋·푸시.
+
 ## 2026-05-25 20:05 Codex SURIT-003
 ### Changed
 - `backend/analyzer.py` 검증 완료: Gemini 입력 잘림 감지 후 `retry_warnings`와 `truncation_warning`에 경고 노출.

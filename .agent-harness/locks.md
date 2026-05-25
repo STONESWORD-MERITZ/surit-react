@@ -8,6 +8,23 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 ## Released
 
+- `backend/filters.py` - Codex - SURIT-004 verification/publish - 2026-05-25 released
+- `backend/pipeline/helpers.py` - Codex - SURIT-004 verification/publish - 2026-05-25 released
+- `backend/analyzer.py` - Codex - SURIT-004 verification/publish - 2026-05-25 released
+- `backend/pipeline/result_builder.py` - Codex - SURIT-004 verification/publish - 2026-05-25 released
+- `backend/pipeline/disease_aggregator.py` - Codex - SURIT-004 verification/publish - 2026-05-25 released
+- `backend/meritz_easy_rules.py` - Codex - SURIT-004 verification/publish - 2026-05-25 released
+- `backend/tests/` - Codex - SURIT-004 verification/publish - 2026-05-25 released
+- `.agent-harness/handoff.md` - Codex - SURIT-004 handoff update - 2026-05-25 released
+- `.agent-harness/locks.md` - Codex - SURIT-004 lock release - 2026-05-25 released
+- `.agent-harness/tasks/SURIT-004-leap-year-cutoff.md` — Claude (Cowork) · SURIT-004 · 2026-05-25 해제
+- `backend/filters.py` — Claude (Cowork) · SURIT-004 · 2026-05-25 해제
+- `backend/pipeline/helpers.py` — Claude (Cowork) · SURIT-004 · 2026-05-25 해제
+- `backend/analyzer.py` — Claude (Cowork) · SURIT-004 · 2026-05-25 해제
+- `backend/pipeline/result_builder.py` — Claude (Cowork) · SURIT-004 · 2026-05-25 해제
+- `backend/pipeline/disease_aggregator.py` — Claude (Cowork) · SURIT-004 · 2026-05-25 해제
+- `backend/meritz_easy_rules.py` — Claude (Cowork) · SURIT-004 · 2026-05-25 해제
+- `backend/tests/` — Claude (Cowork) · SURIT-004 · 2026-05-25 해제
 - `backend/analyzer.py` - Codex - SURIT-003 verification/publish - 2026-05-25 released
 - `backend/tests/` - Codex - SURIT-003 verification/publish - 2026-05-25 released
 - `.agent-harness/handoff.md` - Codex - SURIT-003 handoff update - 2026-05-25 released

@@ -48,6 +48,18 @@ def _code_in(code, prefixes) -> bool:
     return any(c.startswith(p) for p in prefixes)
 
 
+def _subtract_years(d, years: int):
+    """기준일에서 정확히 N 달력연도 전 날짜 (SURIT-004 — 윤년 보정).
+
+    helpers._subtract_years 와 동일 로직. filters.py 의 순환 임포트 회피
+    정책에 따라 인라인한다. 2/29 → 비윤년이면 2/28 로 보정.
+    """
+    try:
+        return d.replace(year=d.year - years)
+    except ValueError:
+        return d.replace(year=d.year - years, month=2, day=28)
+
+
 def _dts_in_range(date_set, since_dt) -> list[str]:
     result = []
     for d in date_set:
@@ -213,12 +225,17 @@ def _chronic_drug_hits(drug_names: Iterable[str]) -> dict[str, list[str]]:
 # ── 공통 날짜 계산 ─────────────────────────────────────
 
 def _cutoffs(reference_date: datetime) -> tuple[datetime, datetime, datetime, datetime]:
-    """(d3m, d1y, d5y, d10y) 반환"""
+    """(d3m, d1y, d5y, d10y) 반환.
+
+    SURIT-004: 5년/10년 창은 윤년 보정을 위해 달력 연도 기준으로 계산한다.
+    기존 고정 일수 방식은 윤년 무시로 2~3일 짧았음.
+    3개월/1년 창은 윤년 영향이 없어 고정 일수를 유지한다.
+    """
     return (
         reference_date - timedelta(days=90),
         reference_date - timedelta(days=365),
-        reference_date - timedelta(days=1825),
-        reference_date - timedelta(days=3650),
+        _subtract_years(reference_date, 5),    # SURIT-004: 달력 기준 5년
+        _subtract_years(reference_date, 10),   # SURIT-004: 달력 기준 10년
     )
 
 

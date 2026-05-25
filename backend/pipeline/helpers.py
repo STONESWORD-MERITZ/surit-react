@@ -393,6 +393,20 @@ def _parse_ymd(value: str):
         return None
 
 
+def _subtract_years(d, years: int):
+    """기준일에서 정확히 N 달력연도 전 날짜를 반환한다 (SURIT-004).
+
+    고정 일수(예: 5년=1825일, 10년=3650일)는 윤년을 무시해 실제 달력
+    5년/10년보다 2~3일 짧다. 보험 고지 기준은 달력 연도(anniversary)이므로
+    연(year)만 빼고 같은 월·일을 유지한다. 2/29 기준일이 비윤년에 닿으면
+    2/28로 보정한다.
+    """
+    try:
+        return d.replace(year=d.year - years)
+    except ValueError:
+        return d.replace(year=d.year - years, month=2, day=28)
+
+
 def _recent_detail_test_events(stat: dict, since_dt: datetime) -> list[dict]:
     events = []
     daily_facts = stat.get("_daily_facts", {}) or {}

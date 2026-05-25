@@ -12,6 +12,7 @@ from .helpers import (
     _max_presc,
     _parse_ymd,
     _sorted_strings,
+    _subtract_years,
     _visit_count_in_range,
     format_kcd_code,
     is_simple_q3_allowed,
@@ -302,8 +303,8 @@ def build_summary_reports(
 
     _d3m_dt  = today - timedelta(days=90)
     _d1y_dt  = today - timedelta(days=365)
-    _d5y_dt  = today - timedelta(days=1825)
-    _d10y_dt = today - timedelta(days=3650)
+    _d5y_dt  = _subtract_years(today, 5)    # SURIT-004: 달력 기준 5년
+    _d10y_dt = _subtract_years(today, 10)   # SURIT-004: 달력 기준 10년
 
     merged_items: dict = {}
     code_claimed: set  = set()
