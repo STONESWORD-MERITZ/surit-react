@@ -18,6 +18,53 @@
 
 Use newest entries at the top.
 
+## 2026-05-26 23:58 Codex SURIT-006
+### Changed
+- `backend/analyzer.py` 검증 및 보강: 9개 분해 헬퍼에 `_` 접두사, 타입 힌트, docstring이 모두 있는지 확인하고 누락된 타입 힌트 보강.
+- `backend/tests/test_run_analysis_decompose.py` 단위 테스트 6건 확인.
+- `.agent-harness/tasks/SURIT-006-run-analysis-decompose.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md` 하네스 기록 정리.
+### Verified
+- [x] `cd backend && python -m pytest -q` - 118 passed
+- [x] 분해 헬퍼 단위 테스트 6건 확인: 시스템 프롬프트 건강체/간편 분기, 텍스트 빌더 빈값/정상, 라인 빌더 빈값
+- [x] `run_analysis` 외부 시그니처 확인: `(active_files, product_type, reference_date, birthdate_pw, api_key) -> dict`
+- [x] 반환 dict 키 HEAD 대비 변경 없음
+- [x] 9개 분해 헬퍼 모두 `_` 접두사, 타입 힌트, docstring 보유
+- [x] `git status --short -uall` - allowed scope only before commit (`backend/analyzer.py`, `backend/tests/*`, `.agent-harness/*`)
+- [x] `git push origin main` - completed by Codex publish step
+### Notes
+- 본체는 163줄로 30줄 목표에는 미달. 다만 Gemini 병렬 호출·의학 판단 병렬 호출·결과 병합 블록은 오케스트레이션 성격이 강하고 입력 파라미터가 많아 추가 분해 시 가독성보다 추적 비용이 커진다는 Cowork 판단을 재확인함.
+- 범위 외 이슈는 발견하지 못함.
+### Next
+- Human: final review.
+- SURIT-007 candidate: Gemini 병렬 호출 블록을 별도 컨텍스트 객체/페이로드 빌더로 추가 분해할지 검토.
+
+## 2026-05-26 23:33 Claude SURIT-006
+### Changed
+- `backend/analyzer.py` — `run_analysis`(745줄)를 9개 내부 `_` 헬퍼로 분해. 본체 ~163줄로 축소. 외부 시그니처·반환 dict 키 불변 — 순수 리팩터링(로직 verbatim 이동).
+- `backend/tests/test_run_analysis_decompose.py` — 분해 헬퍼 단위 테스트 6건 신규.
+- `.agent-harness/tasks/SURIT-006-run-analysis-decompose.md` — 태스크 파일 신규 생성.
+### Verified
+- [x] `cd backend && python -m pytest -q` — 118 passed (기존 112 + 신규 6)
+- [x] `run_analysis` 외부 시그니처 `(active_files, product_type, reference_date, birthdate_pw, api_key) -> dict` 및 반환 dict 키 불변 확인
+- [x] `git status` — 변경은 `analyzer.py` + 신규 테스트 파일뿐 (부수 변경 0)
+- [ ] npm lint/test/build — 해당 없음 (백엔드 전용 변경)
+### Notes
+- **1단계 진단:** `run_analysis`는 94~839행(745줄). 외부 시그니처·반환 dict는 불변 대상. 최대 덩어리는 시스템 프롬프트 구성(~350줄).
+- **분해된 헬퍼 9개 (각 역할):**
+  1. `_parse_all_pdfs`(async) — PDF 병렬 파싱 → (레코드, 파싱오류), 0건 시 AnalysisError
+  2. `_build_drug_change_text` — 약 변경 감지 결과 → Gemini 입력 텍스트
+  3. `_build_presc_end_text` — 처방 종료일 분석 → Gemini 입력 텍스트
+  4. `_build_tagged_entries` — 진료 라인에 기간 태그(IN_3M 등) 부착·파일별 묶음
+  5. `_build_visit_count_lines` — 질병코드별 10년내 통원횟수·최대처방일 집계
+  6. `_build_first_diag_lines` — 질병별 최초·최종 진단일 라인
+  7. `_build_system_prompt` — 상품유형별 Gemini 시스템 프롬프트 전문(~350줄)
+  8. `_build_medical_judgment_inputs` — 의학 판단 API 입력 2종 구성
+  9. `_apply_medical_judgment` — 의학 판단 결과를 disease_stats·code_based_items에 반영(in-place)
+- Gemini 병렬 호출·병합 블록(~70줄)은 오케스트레이션 본체 성격 + 입력 파라미터 14개라, 헬퍼화 시 가독성을 해쳐 `run_analysis` 본체에 유지. 이 사유로 본체가 ~163줄(태스크 "30줄 이내" 목표 미달) — 태스크 진단 메모에 사전 기록함.
+- 분해는 git HEAD 본문을 블록 단위로 verbatim 이동(로직 무변경)하는 변환 스크립트로 수행 — 마운트 캐시 churn 회피 + 순수 리팩터링 보장.
+### Next
+- Codex: SURIT-006 검증 + 푸시 — `cd backend && python -m pytest -q`(118) 재확인, `backend/analyzer.py` + `backend/tests/test_run_analysis_decompose.py` + 태스크 파일 커밋·푸시.
+
 ## 2026-05-26 18:25 Codex SURIT-005
 ### Changed
 - `backend/filters.py` 검증 완료: 인라인 `_dts_in_range` 제거, `pipeline.helpers._dts_in_range` import로 전환.

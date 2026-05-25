@@ -88,30 +88,10 @@ def _build_truncation_warning(truncated_files: list) -> str | None:
     )
 
 
-# ==========================================
-# 분석 엔진
-# ==========================================
-async def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_key) -> dict:
-    """
-    PDF 파일들을 분석하여 알릴의무 항목을 추출합니다.
-
-    Returns dict with keys:
-        ai_result, summary_reports, flagged_codes,
-        prescription_end_details, drug_change_summary,
-        analysis_today, parse_errors, retry_warnings, truncation_warning
-
-    Raises:
-        AnalysisError: 분석 실패 시
-    """
-    today = datetime(reference_date.year, reference_date.month, reference_date.day)
-    _d3m_dt  = today - timedelta(days=90)
-    _d1y_dt  = today - timedelta(days=365)
-    _d5y_dt  = _subtract_years(today, 5)    # SURIT-004: 달력 기준 5년
-    _d10y_dt = _subtract_years(today, 10)   # SURIT-004: 달력 기준 10년
+async def _parse_all_pdfs(active_files: list, birthdate_pw: str) -> tuple[list, list]:
+    """PDF들을 병렬 파싱해 (레코드, 파싱오류) 반환. 레코드 0건이면 AnalysisError."""
     all_records = []
     parse_errors = []
-    retry_warnings = []
-
     # ── PDF 파싱 (병렬 스레드) ────────────────────────────────────
     parse_results = await asyncio.gather(
         *[asyncio.to_thread(parse_single_pdf, uf, birthdate_pw) for uf in active_files],
@@ -136,40 +116,11 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
             "심평원에서 발급한 진료내역 PDF가 맞는지 확인해 주세요."
         )
 
-    # ── disease_stats + raw_entries 빌드 ─────────────────────────
-    disease_stats, cross_surgery_hints, date_warnings, raw_entries, lines_by_file = \
-        build_disease_stats(all_records, today)
-    del all_records
-    gc.collect()
+    return all_records, parse_errors
 
-    parse_errors.extend(date_warnings)
 
-    # ── 약 변경 감지 ──────────────────────────────────────────────
-    drug_change_summary = detect_drug_changes(disease_stats, today)
-
-    # ── 코드 기반 결정론적 알릴의무 ──────────────────────────────
-    drug_change_groups = {
-        dc["group"] for dc in drug_change_summary
-        if dc.get("change_type") in ("약 종류 변경", "새 약 추가", "용량 증가")
-    }
-    code_based_items = _build_code_based_items(
-        disease_stats=disease_stats,
-        reference_date=today,
-        product_type=product_type,
-        drug_change_groups=drug_change_groups,
-    )
-
-    # ── 처방 종료일 계산 ─────────────────────────────────────────
-    prescription_end_details, earliest_available_date = \
-        compute_prescription_end_dates(disease_stats, today)
-
-    # ── drug_change_text / presc_end_text 구성 ───────────────────
-    today_str = today.strftime('%Y-%m-%d')
-    d_3m  = (today - timedelta(days=90)).strftime('%Y-%m-%d')
-    d_1y  = (today - timedelta(days=365)).strftime('%Y-%m-%d')
-    d_5y  = _subtract_years(today, 5).strftime('%Y-%m-%d')    # SURIT-004: 달력 기준 5년
-    d_10y = _subtract_years(today, 10).strftime('%Y-%m-%d')   # SURIT-004: 달력 기준 10년
-
+def _build_drug_change_text(drug_change_summary: list[dict]) -> str:
+    """약 변경 감지 결과를 Gemini 입력용 텍스트 블록으로 구성."""
     drug_change_text = ""
     if drug_change_summary:
         drug_change_text = "\n[처방약 변경 감지 결과 — 간편심사 Q1 판단 필수 참고]\n"
@@ -187,6 +138,15 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
             "※ 가입 가능: 동일 약 지속 복용(변경 없음) / 용량 감소 / 약 중단\n"
         )
 
+    return drug_change_text
+
+
+def _build_presc_end_text(
+    prescription_end_details: list[dict],
+    earliest_available_date: datetime | None,
+    today: datetime,
+) -> str:
+    """처방 종료일 분석을 Gemini 입력용 텍스트 블록으로 구성."""
     presc_end_text = ""
     if prescription_end_details:
         presc_end_text = "\n[3개월 이내 처방 종료일 분석 — 가입 가능 날짜 계산]\n"
@@ -205,6 +165,16 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         elif earliest_available_date and earliest_available_date <= today:
             presc_end_text += "\n★ 3개월 이내 처방이 있으나 모두 복약 완료 상태 — 투약 관련 Q1은 면제 가능\n"
 
+    return presc_end_text
+
+
+def _build_tagged_entries(
+    raw_entries: list[tuple[str, str]],
+    today: datetime,
+    _d5y_dt: datetime,
+    _d10y_dt: datetime,
+) -> dict[str, list[str]]:
+    """진료 라인에 기간 태그(IN_3M 등)를 붙여 파일별로 묶어 반환."""
     # ── 날짜 태그 필터링 ─────────────────────────────────────────
     filtered_entries = []
     for fname_row, line in raw_entries:
@@ -237,6 +207,11 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         if fname_row:
             lines_by_file_tagged[fname_row].append(tl)
 
+    return lines_by_file_tagged
+
+
+def _build_visit_count_lines(disease_stats: dict, _d10y_dt: datetime) -> list[str]:
+    """질병코드별 10년내 통원횟수·최대처방일 집계 라인 구성."""
     # ── 통원횟수·처방일수 집계 ───────────────────────────────────
     visit_count_lines = []
     for _code, _s in disease_stats.items():
@@ -267,6 +242,11 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
                 f"[통원집계] {_code} {_name} 10년내통원{_cnt}회 ({_first}~{_last}){_presc_note}{_7day_flag}"
             )
 
+    return visit_count_lines
+
+
+def _build_first_diag_lines(disease_stats: dict) -> list[str]:
+    """질병별 최초·최종 진단일 라인 구성."""
     # ── 최초 진단일 ───────────────────────────────────────────────
     first_diag_lines = []
     for _ck, _s in disease_stats.items():
@@ -276,6 +256,18 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
             _nm = _s.get("name", "")[:20]
             first_diag_lines.append(f"  {_dc} {_nm} 최초={_fd} 최종={_s.get('latest_date','')}")
 
+    return first_diag_lines
+
+
+def _build_system_prompt(
+    product_type: str,
+    today_str: str,
+    d_3m: str,
+    d_1y: str,
+    d_5y: str,
+    d_10y: str,
+) -> str:
+    """상품유형별 Gemini 시스템 프롬프트 전문을 구성."""
     # ── 시스템 프롬프트 구성 ─────────────────────────────────────
     is_health = product_type == "건강체/표준체 (일반심사)"
     step2_tag_rules = (
@@ -629,6 +621,16 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
 절대 규칙: 응답은 반드시 {{ 로 시작하고 }} 로 끝나는 순수 JSON만 출력하세요.
 설명, 주석, 마크다운 백틱, 전후 텍스트 일체 금지."""
 
+    return system_prompt
+
+
+def _build_medical_judgment_inputs(
+    disease_stats: dict,
+    _d3m_dt: datetime,
+    _d1y_dt: datetime,
+    today_str: str,
+) -> tuple[list[dict], list[dict]]:
+    """의학 판단(추가검사/치료종결) API 입력 2종을 구성."""
     # ── 의학 판단 입력 준비 ─────────────────────────────────────
     _mj_type1: list[dict] = []
     _mj_type2: list[dict] = []
@@ -687,6 +689,131 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
                 "recent_drugs":  _recent_drugs,
             })
 
+    return _mj_type1, _mj_type2
+
+
+def _apply_medical_judgment(
+    disease_stats: dict,
+    code_based_items: list[dict],
+    _med_result: dict,
+    _d1y_dt: datetime,
+) -> None:
+    """의학 판단 결과를 disease_stats·code_based_items에 반영(in-place)."""
+    # ── 의학 판단 결과 → disease_stats 반영 ─────────────────────
+    _at_results = _med_result.get("additional_tests", {})
+    _to_results = _med_result.get("treatment_ongoing", {})
+    for _jck, _js in disease_stats.items():
+        _jdc = (_js.get("diag_code") or _jck).strip()
+        if _jdc in _at_results:
+            _js["_additional_test_result"] = _at_results[_jdc]
+        if _jdc in _to_results:
+            _js["_treatment_ongoing_result"] = _to_results[_jdc]
+
+        _at = _js.get("_additional_test_result")
+        if _at and bool(_at.get("is_additional_test")):
+            _events_1y = _recent_detail_test_events(_js, _d1y_dt)
+            if _events_1y:
+                _event_dates = [e["date"] for e in _events_1y if e.get("date")]
+                _test_names = _sorted_strings({e["name"] for e in _events_1y if e.get("name")})
+                _med_dict = _js.get("med_dates_pharma_episode") or _js.get("med_dates_pharma", {})
+                code_based_items.append({
+                    "date": max(_event_dates) if _event_dates else _js.get("latest_date", ""),
+                    "code": _jdc,
+                    "disease": _js.get("name", "") or _jdc,
+                    "hospital": " / ".join(_sorted_strings(_js.get("hospitals", set()))[:2]) or "정보 없음",
+                    "duty_question": "Q2",
+                    "reason": _at.get("reason") or (
+                        f"1년 이내 세부진료 검사 {len(_events_1y)}회/"
+                        f"{_detail_test_type_count(_events_1y)}종 - API 추가검사/재검사 판단"
+                    ),
+                    "is_inpatient": False,
+                    "inpatient_days": 0,
+                    "inpatient_count": 0,
+                    "visit_count": _visit_count_in_range(_js, _d1y_dt),
+                    "is_surgery": False,
+                    "surgery_name": None,
+                    "med_days": _max_presc(_med_dict, _d1y_dt),
+                    "first_diagnosis_date": _js.get("first_date", ""),
+                    "weight": "mid",
+                    "_source": "medical_judgment",
+                    "_rule_id": "R-H-Q2-TEST-API",
+                    "_evidence": {
+                        "api_reason": _at.get("reason", ""),
+                        "test_type": _at.get("test_type", ""),
+                        "test_event_count": len(_events_1y),
+                        "test_type_count": _detail_test_type_count(_events_1y),
+                        "test_names": _test_names[:10],
+                        "test_dates": _event_dates,
+                        "source": "detail+api",
+                    },
+                })
+
+
+
+# ==========================================
+# 분석 엔진
+# ==========================================
+async def run_analysis(active_files, product_type, reference_date, birthdate_pw, api_key) -> dict:
+    """
+    PDF 파일들을 분석하여 알릴의무 항목을 추출합니다.
+
+    Returns dict with keys:
+        ai_result, summary_reports, flagged_codes,
+        prescription_end_details, drug_change_summary,
+        analysis_today, parse_errors, retry_warnings, truncation_warning
+
+    Raises:
+        AnalysisError: 분석 실패 시
+    """
+    today = datetime(reference_date.year, reference_date.month, reference_date.day)
+    _d3m_dt  = today - timedelta(days=90)
+    _d1y_dt  = today - timedelta(days=365)
+    _d5y_dt  = _subtract_years(today, 5)    # SURIT-004: 달력 기준 5년
+    _d10y_dt = _subtract_years(today, 10)   # SURIT-004: 달력 기준 10년
+    retry_warnings = []
+
+    all_records, parse_errors = await _parse_all_pdfs(active_files, birthdate_pw)
+    # ── disease_stats + raw_entries 빌드 ─────────────────────────
+    disease_stats, cross_surgery_hints, date_warnings, raw_entries, lines_by_file = \
+        build_disease_stats(all_records, today)
+    del all_records
+    gc.collect()
+
+    parse_errors.extend(date_warnings)
+
+    # ── 약 변경 감지 ──────────────────────────────────────────────
+    drug_change_summary = detect_drug_changes(disease_stats, today)
+
+    # ── 코드 기반 결정론적 알릴의무 ──────────────────────────────
+    drug_change_groups = {
+        dc["group"] for dc in drug_change_summary
+        if dc.get("change_type") in ("약 종류 변경", "새 약 추가", "용량 증가")
+    }
+    code_based_items = _build_code_based_items(
+        disease_stats=disease_stats,
+        reference_date=today,
+        product_type=product_type,
+        drug_change_groups=drug_change_groups,
+    )
+
+    # ── 처방 종료일 계산 ─────────────────────────────────────────
+    prescription_end_details, earliest_available_date = \
+        compute_prescription_end_dates(disease_stats, today)
+
+    # ── drug_change_text / presc_end_text 구성 ───────────────────
+    today_str = today.strftime('%Y-%m-%d')
+    d_3m  = (today - timedelta(days=90)).strftime('%Y-%m-%d')
+    d_1y  = (today - timedelta(days=365)).strftime('%Y-%m-%d')
+    d_5y  = _subtract_years(today, 5).strftime('%Y-%m-%d')    # SURIT-004: 달력 기준 5년
+    d_10y = _subtract_years(today, 10).strftime('%Y-%m-%d')   # SURIT-004: 달력 기준 10년
+
+    drug_change_text = _build_drug_change_text(drug_change_summary)
+    presc_end_text = _build_presc_end_text(prescription_end_details, earliest_available_date, today)
+    lines_by_file_tagged = _build_tagged_entries(raw_entries, today, _d5y_dt, _d10y_dt)
+    visit_count_lines = _build_visit_count_lines(disease_stats, _d10y_dt)
+    first_diag_lines = _build_first_diag_lines(disease_stats)
+    system_prompt = _build_system_prompt(product_type, today_str, d_3m, d_1y, d_5y, d_10y)
+    _mj_type1, _mj_type2 = _build_medical_judgment_inputs(disease_stats, _d3m_dt, _d1y_dt, today_str)
     # ── Gemini API 호출 (PDF별 병렬 + 의학 판단 병렬) ────────────
     gemini_payloads = []
     truncated_files: list[str] = []
@@ -758,55 +885,7 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
 
     ai_result = _merge_ai_results(ai_successes)
 
-    # ── 의학 판단 결과 → disease_stats 반영 ─────────────────────
-    _at_results = _med_result.get("additional_tests", {})
-    _to_results = _med_result.get("treatment_ongoing", {})
-    for _jck, _js in disease_stats.items():
-        _jdc = (_js.get("diag_code") or _jck).strip()
-        if _jdc in _at_results:
-            _js["_additional_test_result"] = _at_results[_jdc]
-        if _jdc in _to_results:
-            _js["_treatment_ongoing_result"] = _to_results[_jdc]
-
-        _at = _js.get("_additional_test_result")
-        if _at and bool(_at.get("is_additional_test")):
-            _events_1y = _recent_detail_test_events(_js, _d1y_dt)
-            if _events_1y:
-                _event_dates = [e["date"] for e in _events_1y if e.get("date")]
-                _test_names = _sorted_strings({e["name"] for e in _events_1y if e.get("name")})
-                _med_dict = _js.get("med_dates_pharma_episode") or _js.get("med_dates_pharma", {})
-                code_based_items.append({
-                    "date": max(_event_dates) if _event_dates else _js.get("latest_date", ""),
-                    "code": _jdc,
-                    "disease": _js.get("name", "") or _jdc,
-                    "hospital": " / ".join(_sorted_strings(_js.get("hospitals", set()))[:2]) or "정보 없음",
-                    "duty_question": "Q2",
-                    "reason": _at.get("reason") or (
-                        f"1년 이내 세부진료 검사 {len(_events_1y)}회/"
-                        f"{_detail_test_type_count(_events_1y)}종 - API 추가검사/재검사 판단"
-                    ),
-                    "is_inpatient": False,
-                    "inpatient_days": 0,
-                    "inpatient_count": 0,
-                    "visit_count": _visit_count_in_range(_js, _d1y_dt),
-                    "is_surgery": False,
-                    "surgery_name": None,
-                    "med_days": _max_presc(_med_dict, _d1y_dt),
-                    "first_diagnosis_date": _js.get("first_date", ""),
-                    "weight": "mid",
-                    "_source": "medical_judgment",
-                    "_rule_id": "R-H-Q2-TEST-API",
-                    "_evidence": {
-                        "api_reason": _at.get("reason", ""),
-                        "test_type": _at.get("test_type", ""),
-                        "test_event_count": len(_events_1y),
-                        "test_type_count": _detail_test_type_count(_events_1y),
-                        "test_names": _test_names[:10],
-                        "test_dates": _event_dates,
-                        "source": "detail+api",
-                    },
-                })
-
+    _apply_medical_judgment(disease_stats, code_based_items, _med_result, _d1y_dt)
     del system_prompt
     gc.collect()
 
