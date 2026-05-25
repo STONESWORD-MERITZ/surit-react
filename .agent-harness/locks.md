@@ -8,6 +8,14 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 ## Released
 
+- `backend/analyzer.py` - Codex - SURIT-003 verification/publish - 2026-05-25 released
+- `backend/tests/` - Codex - SURIT-003 verification/publish - 2026-05-25 released
+- `.agent-harness/handoff.md` - Codex - SURIT-003 handoff update - 2026-05-25 released
+- `.agent-harness/locks.md` - Codex - SURIT-003 lock release - 2026-05-25 released
+- `.agent-harness/tasks/SURIT-003-large-pdf-truncation-warning.md` — Claude (Cowork) · SURIT-003 · 2026-05-25 해제
+- `backend/analyzer.py` — Claude (Cowork) · SURIT-003 · 2026-05-25 해제
+- `src/pages/Disclosure.tsx` — Claude (Cowork) · SURIT-003 · 2026-05-25 해제 (미수정)
+- `backend/tests/` — Claude (Cowork) · SURIT-003 · 2026-05-25 해제
 - `backend/requirements.txt` - Codex - SURIT-001 publish - 2026-05-25 released
 - `새 텍스트 문서.txt` - Codex - SURIT-001 publish - 2026-05-25 released
 - `backend/pipeline/pdf_parser.py` - Codex - SURIT-002 publish - 2026-05-25 released

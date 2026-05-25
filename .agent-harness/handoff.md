@@ -18,6 +18,63 @@
 
 Use newest entries at the top.
 
+## 2026-05-25 20:05 Codex SURIT-003
+### Changed
+- `backend/analyzer.py` 검증 완료: Gemini 입력 잘림 감지 후 `retry_warnings`와 `truncation_warning`에 경고 노출.
+- `backend/tests/test_truncation_warning.py` 보강: 800줄 초과, `... (truncated)` 표식, 정상 케이스가 각각 `truncation_warning` 생성/미생성을 직접 검증하도록 확인.
+- `.agent-harness/tasks/SURIT-003-large-pdf-truncation-warning.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md` 하네스 기록 정리.
+### Verified
+- [x] `cd backend && python -m pytest -q` - 102 passed
+- [x] `npx tsc -p tsconfig.app.json --noEmit` - passed
+- [x] `npx tsc -p tsconfig.node.json --noEmit` - passed
+- [x] `npm run build` - passed
+- [x] `git status --short -uall` - allowed scope only before commit (`backend/analyzer.py`, `backend/tests/*`, `.agent-harness/*`)
+- [x] `src/pages/Disclosure.tsx` - no diff
+- [x] `git push origin main` - to be completed by Codex publish step
+### Notes
+- `npm run build` passed in local Windows environment. Cowork sandbox의 `@rolldown` native binding 문제는 이 환경에서 재현되지 않았고, Vite chunk-size warning만 출력됨.
+- 신규 테스트는 5건 그대로 유지하면서 핵심 3개 케이스가 경고 생성 여부까지 확인하도록 보강함.
+### Next
+- Human: final review.
+- SURIT-004 candidates: 윤년 컷오프 보정(P2) 또는 메리츠 룰 출처(약관명·개정일) 표기(P2).
+
+## 2026-05-25 10:55 Claude SURIT-003
+### Changed
+- `backend/analyzer.py` — 잘림 감지 헬퍼 `_is_gemini_input_truncated()`·`_build_truncation_warning()` 추가. Gemini 입력 구성 호출부에서 PDF별 잘림 감지 → 발생 시 `retry_warnings`에 사용자 경고 추가, `run_analysis` 반환 dict에 `truncation_warning` 필드 추가.
+- `backend/tests/test_truncation_warning.py` — 잘림 감지 회귀 테스트 5건 신규.
+- `.agent-harness/tasks/SURIT-003-large-pdf-truncation-warning.md` — 태스크 파일 신규 생성.
+### Verified
+- [x] `cd backend && python -m pytest -q` — 102 passed (기존 97 + 신규 5)
+- [x] `npx tsc -p tsconfig.app.json --noEmit` — exit 0
+- [x] `npx tsc -p tsconfig.node.json --noEmit` — exit 0
+- [ ] `npm run build` — Cowork 샌드박스에서 실행 불가. 사유: node_modules가 Windows에서 설치돼 `@rolldown` Linux 네이티브 바인딩 부재(`binding-win32-x64-msvc`만 존재). 코드 무관 환경 이슈이며 프런트 파일 무수정이라 빌드 영향 없음 → Codex 환경에서 검증 필요.
+### Notes
+- **1단계 진단:** 잘림 로직은 `pdf_parser.py`가 아니라 `pipeline/ai_judgment.py`의 `_finalize_raw_text_for_gemini()`에 있음 — `filtered_lines[:800]`(줄 잘림), `MAX_RAW_TEXT_LEN=30_000`(글자 잘림, `... (truncated)` 표식 부착). 이 함수는 `analyzer.py`에서 호출됨. `pdf_parser.py`는 본 태스크와 무관 → 미수정.
+- **결정(사용자 확인):** "범위 유지" 선택 → `ai_judgment.py`(범위 외) 무수정, `analyzer.py` 호출부에서 감지.
+- **전달 경로:** `main.py`(범위 외)가 API 응답을 화이트리스트(`retry_warnings`→`warnings`)로 추림. 전용 필드를 프런트까지 보내려면 `main.py` 수정이 필요해, 잘림 경고를 기존 `retry_warnings` 채널에 추가 → `main.py`·`Disclosure.tsx` 수정 없이 기존 `warnings` 경고 박스로 사용자에게 노출. `run_analysis` 반환 dict에는 전용 `truncation_warning` 필드도 함께 둠(테스트·향후 확장용).
+- `Disclosure.tsx`는 무수정(잠금만 잡았다 해제) — 경고가 기존 `warnings` 렌더링으로 표시됨.
+- mnt 마운트가 대용량 `analyzer.py`(837줄)를 찢어진 상태로 동기화 → git HEAD 원본 기반으로 4개 편집을 재적용(각 1회 매칭 확인)해 정본 기록 후 검증. Windows 원본 무결 확인.
+### Next
+- Codex: SURIT-003 검증 + 푸시 — `cd backend && python -m pytest -q`(102) 재확인, `npm run build`를 정상 환경에서 검증, 변경분(`backend/analyzer.py`, `backend/tests/test_truncation_warning.py`, 태스크 파일) 커밋·푸시.
+
+## 2026-05-25 19:12 Codex SURIT-PUBLISH
+### Changed
+- Commit `ea3d6dcc30cb399f8c34e6f03985c5787a363094` (`SURIT-001: 백엔드 의존성 전체 == 고정 + 임시 파일 삭제`) pushed to `origin/main`.
+- Commit `6f80f5d0a6cdba13225cdd41ee40782b46e4bd85` (`SURIT-002: 처방 PDF 약신호 헤더 시 본문 신호 우선 (회귀 테스트 6건 추가)`) pushed to `origin/main`.
+- Commit `99943fea09a910a7aa11798e5f3588361e470de9` (`SURIT-HARNESS-PATCH-2: Codex git push 담당 워크플로우 문서 반영 + 프로젝트 문서 추가`) pushed to `origin/main`.
+### Verified
+- [x] `python -m pytest -q` in `backend` - 97 passed
+- [x] `npm run lint` - passed
+- [x] `npm test` - 1 passed
+- [x] `npm run build` - passed (Vite chunk-size warning only)
+- [x] `git push origin main` - completed
+- [x] `git status --short` - clean after push, before this handoff update
+### Notes
+- Commit 3 included the untracked harness base documents under `.agent-harness/` so the requested post-push clean status could be reached.
+- `.agent-harness/locks.md` Active is `none`; locks released.
+### Next
+- Human: final review and decide whether to start SURIT-003.
+
 ## 2026-05-25 13:40 Codex SURIT-HARNESS-PATCH-2
 ### Changed
 - `AGENTS.md`, `CLAUDE.md`, `.agent-harness/tasks/SURIT-HARNESS-PATCH-2-workflow-git-push.md` 검증 시도.

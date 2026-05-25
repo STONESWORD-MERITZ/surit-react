@@ -60,6 +60,33 @@ from pipeline.result_builder import (
 )
 
 
+# ── SURIT-003: 초대용량 PDF AI 입력 잘림 감지 ───────────────────────
+# ai_judgment._finalize_raw_text_for_gemini 가 filtered_lines[:800] 로 줄을
+# 자르고, 길이가 30,000자를 넘으면 "... (truncated)" 표식을 붙인다. 잘림
+# 로직 자체는 변경하지 않고, analyzer 호출부에서 잘림 여부만 감지한다.
+_GEMINI_LINE_CAP = 800
+
+
+def _is_gemini_input_truncated(file_lines: list, raw_text: str) -> bool:
+    """해당 PDF의 진료 내역이 AI 입력 한도(줄/글자 수)에 걸려 잘렸는지 판정.
+
+    줄 잘림은 filtered_lines 길이가 _GEMINI_LINE_CAP 초과인지로, 글자 잘림은
+    완성된 raw_text 끝의 "... (truncated)" 표식 유무로 감지한다.
+    """
+    return len(file_lines) > _GEMINI_LINE_CAP or raw_text.endswith("... (truncated)")
+
+
+def _build_truncation_warning(truncated_files: list) -> str | None:
+    """잘림이 발생한 PDF가 있으면 사용자 경고 문구를, 없으면 None을 반환한다."""
+    if not truncated_files:
+        return None
+    return (
+        "⚠️ PDF 용량이 커서 일부 진료 내역이 AI 분석 입력에서 제외됐을 수 있습니다. "
+        "분석 결과가 불완전할 수 있으니 진료 원자료로 직접 확인해 주세요. "
+        f"(해당 파일: {', '.join(truncated_files)})"
+    )
+
+
 # ==========================================
 # 분석 엔진
 # ==========================================
@@ -70,7 +97,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
     Returns dict with keys:
         ai_result, summary_reports, flagged_codes,
         prescription_end_details, drug_change_summary,
-        analysis_today, parse_errors, retry_warnings
+        analysis_today, parse_errors, retry_warnings, truncation_warning
 
     Raises:
         AnalysisError: 분석 실패 시
@@ -659,6 +686,7 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
 
     # ── Gemini API 호출 (PDF별 병렬 + 의학 판단 병렬) ────────────
     gemini_payloads = []
+    truncated_files: list[str] = []
     for uf in active_files:
         fn = getattr(uf, "name", None) or getattr(uf, "filename", None) or "unknown.pdf"
         flines = lines_by_file_tagged.get(fn, [])
@@ -670,12 +698,20 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
             drug_change_text,
             presc_end_text,
         )
+        # SURIT-003: 초대용량 PDF로 AI 입력이 잘렸는지 감지 (잘림 로직은 불변)
+        if _is_gemini_input_truncated(flines, rt_part):
+            truncated_files.append(fn)
         gemini_payloads.append({
             "filename": fn,
             "raw_text": rt_part,
             "system_prompt": system_prompt,
             "today_str": today_str,
         })
+
+    # SURIT-003: 잘림 발생 시 사용자 경고를 retry_warnings 채널로 노출
+    truncation_warning = _build_truncation_warning(truncated_files)
+    if truncation_warning:
+        retry_warnings.append(truncation_warning)
 
     sem = asyncio.Semaphore(5)
 
@@ -795,5 +831,6 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
         "analysis_today":          today,
         "parse_errors":            parse_errors,
         "retry_warnings":          retry_warnings,
+        "truncation_warning":      truncation_warning,
         "meritz_easy":             meritz_easy_result,
     }
