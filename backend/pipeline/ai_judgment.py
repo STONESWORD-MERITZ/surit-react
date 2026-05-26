@@ -249,7 +249,10 @@ async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_dat
             f"[보조 분석 자료 — 사전 가공된 통원/처방/태그 데이터]\n{raw_text}"
         )
         pdf_part = types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")
-        contents = [pdf_part, instruction]
+        # SURIT-007 fix: SDK 2.6.0 에서 contents=[Part, str] 혼합은 inline_data Part 와
+        # 함께 있을 때 HTTP 400 (Invalid argument) 을 유발한다. 텍스트도 명시적 Part 로
+        # 감싸 모든 원소를 Part 로 통일한다 (Railway 400 핫픽스).
+        contents = [pdf_part, types.Part.from_text(text=instruction)]
     else:
         # 텍스트 fallback (PDF 파싱 실패 등)
         contents = f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n진료 데이터:\n{raw_text}"
