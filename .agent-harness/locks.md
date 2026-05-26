@@ -4,9 +4,23 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 ## Active
 
-- none
+(none)
 
 ## Released
+
+- `backend/pipeline/ai_judgment.py` - Codex - SURIT-ROLLBACK-001 verification/publish - 2026-05-26 released
+- `backend/analyzer.py` - Codex - SURIT-ROLLBACK-001 verification/publish - 2026-05-26 released
+- `backend/pipeline/pdf_parser.py` - Codex - SURIT-ROLLBACK-001 verification/publish - 2026-05-26 released
+- `backend/tests/` - Codex - SURIT-ROLLBACK-001 verification/publish - 2026-05-26 released
+- `.agent-harness/handoff.md` - Codex - SURIT-ROLLBACK-001 handoff update - 2026-05-26 released
+- `.agent-harness/locks.md` - Codex - SURIT-ROLLBACK-001 lock release - 2026-05-26 released
+
+- `.agent-harness/tasks/SURIT-ROLLBACK-001-revert-pdf-native.md` — Claude (Cowork) · SURIT-ROLLBACK-001 · 2026-05-27 해제
+- `backend/pipeline/ai_judgment.py` — Claude (Cowork) · SURIT-ROLLBACK-001 · 2026-05-27 해제
+- `backend/analyzer.py` — Claude (Cowork) · SURIT-ROLLBACK-001 · 2026-05-27 해제
+- `backend/pipeline/pdf_parser.py` — Claude (Cowork) · SURIT-ROLLBACK-001 · 2026-05-27 해제
+- `backend/tests/` — Claude (Cowork) · SURIT-ROLLBACK-001 · 2026-05-27 해제
+
 
 - `backend/pipeline/ai_judgment.py` - Codex - SURIT-BUG-005 verification/publish - 2026-05-26 released
 - `backend/tests/` - Codex - SURIT-BUG-005 verification - 2026-05-26 released

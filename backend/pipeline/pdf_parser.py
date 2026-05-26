@@ -256,6 +256,6 @@ def parse_single_pdf(uploaded_file, birthdate_pw) -> dict:
         else:
             parse_errors_local.append(f"⚠️ {fname}: 파일 읽기 실패 — {err_str[:80]}")
     finally:
+        del pdf_data
         gc.collect()
-    # SURIT-007: PDF 바이너리를 결과에 포함 — Gemini 네이티브 첨부 경로에서 사용.
-    return {"filename": fname, "records": file_recs, "parse_errors": parse_errors_local, "pdf_bytes": pdf_data}
+    return {"filename": fname, "records": file_recs, "parse_errors": parse_errors_local}

@@ -18,6 +18,53 @@
 
 Use newest entries at the top.
 
+## 2026-05-26 16:07 Codex SURIT-ROLLBACK-001
+### Changed
+- `backend/pipeline/ai_judgment.py` 검증: PDF 네이티브 첨부/Files API 경로 롤백, `_strengthen_filter` 기반 텍스트 필터링 적용, 입력 상한 3000줄/100K자 확인.
+- `backend/analyzer.py` 검증: `_GEMINI_LINE_CAP = 3000` 동기화 확인.
+- `backend/pipeline/pdf_parser.py` 검증: `pdf_bytes` 반환 제거 및 기존 `del pdf_data; gc.collect()` 경로 복원 확인.
+- `backend/tests/test_ai_judgment_filter.py` 신규 필터 회귀 테스트 5건 확인.
+- `backend/tests/test_pdf_native.py` 삭제 처리 완료.
+- `.agent-harness/tasks/SURIT-ROLLBACK-001-revert-pdf-native.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md` 하네스 정리.
+### Verified
+- [x] `touch backend/pipeline/ai_judgment.py` - pyc 캐시 무효화
+- [x] `git rm backend/tests/test_pdf_native.py` - SURIT-007 PDF 네이티브 테스트 제거
+- [x] `cd backend && python -m pytest -q` - 123 passed
+- [x] `_strengthen_filter` 신규 테스트 5건 확인: 반복 헤더 제거, 연속 중복 제거, 짧은 노이즈 제거 포함
+- [x] PDF 네이티브 첨부 코드 잔존 없음: `from_bytes`, `from_uri`, `files.upload`, `files.delete`, `pdf_bytes` 검색 결과 없음
+- [x] `_finalize_raw_text_for_gemini`에서 `_strengthen_filter(filtered_lines)` 호출 확인
+- [x] 잘림 상한 3000줄 / 100K자 확인
+- [x] `backend/analyzer.py` - `_GEMINI_LINE_CAP = 3000` 확인
+- [x] `git status --short -uall` - 허용 범위만 변경됨
+- [x] `git push origin main` - Codex publish step에서 완료
+### Notes
+- backend 전용 변경이라 npm lint/test/build는 미실행.
+### Next
+- Human: Railway 배포 후 박화자 PDF 재테스트.
+- truncation_warning 없으면 해소, 있으면 상한 추가 조정 검토.
+
+## 2026-05-27 07:00 Claude SURIT-ROLLBACK-001
+### Changed
+- `backend/pipeline/ai_judgment.py` — 1단계: `git show d60ccba7:` 로 BUG-002 상태(302줄) 복원하여 SURIT-007/BUG-003/BUG-004/BUG-005 의 PDF 네이티브 첨부·Files API 코드 전체 제거. 2~3단계: `import re` 추가 + `_REPEAT_HEADER_KEYWORDS`/`_SIGNAL_PATTERNS` 상수와 `_looks_like_repeated_header`/`_has_signal`/`_strengthen_filter` 헬퍼 신설. `_finalize_raw_text_for_gemini` 가 `_strengthen_filter(filtered_lines)` 를 거친 뒤 슬라이스. 잘림 상한 2000 → 3000 줄, `MAX_RAW_TEXT_LEN` 80,000 → 100,000 자 상향.
+- `backend/analyzer.py` — BUG-002 상태(922줄) 복원하여 pdf_bytes 관련 변경 제거. `_GEMINI_LINE_CAP` 을 ai_judgment 와 동기화(2000 → 3000) + 주석 갱신.
+- `backend/pipeline/pdf_parser.py` — BUG-002 상태(261줄) 복원하여 `parse_single_pdf` 결과 dict 의 `pdf_bytes` 키 제거. `finally: del pdf_data; gc.collect()` + 페이지별 `flush_cache()` 는 유지.
+- `backend/tests/test_pdf_native.py` — 마운트 권한 문제로 파일 자체 삭제 불가. 본문을 모듈 docstring 만 남기고 비워 pytest 0건 수집.
+- `backend/tests/test_ai_judgment_filter.py` — `_strengthen_filter` / `_has_signal` / `_looks_like_repeated_header` / `_finalize_raw_text_for_gemini` 통합 단위 테스트 5건 신규.
+- `.agent-harness/tasks/SURIT-ROLLBACK-001-revert-pdf-native.md` — 태스크 파일 신규 생성.
+### Verified
+- [x] `cd backend && python -m pytest -q` — **123 passed** (롤백 후 118 + 신규 필터 테스트 5 = 123)
+- [x] 롤백 직후 잠시 119+1F 였던 `test_pdf_native::test_parse_single_pdf_returns_pdf_bytes_field` 실패는 `test_pdf_native.py` 본문 비움으로 해결됨 (롤백 의도와 일치).
+- [x] `_GEMINI_LINE_CAP` 동기화로 `test_truncation_warning.py` 회귀 유지.
+- [x] `ast.parse` / Python AST 함수 목록 검증.
+- [ ] npm lint/test/build — 해당 없음 (백엔드 전용 변경).
+### Notes
+- **롤백 사유:** SURIT-007 ~ BUG-005 의 PDF 네이티브 첨부(inline → Files API)는 318p 박화자 PDF 에서 400/메모리 압박을 해결하지 못함. 텍스트 방식으로 복귀하되, 필터링 강화로 잘림 상한 내 데이터 밀도를 높이는 전략 채택.
+- **필터링 효과:** `_strengthen_filter` 가 ① 반복되는 표 헤더(요양기관명·상병코드 등 키워드 2개↑) ② 연속 중복 줄 ③ 길이 ≤2 자 노이즈 ④ 신호(날짜·코드·3자리 숫자) 없는 <10 자 짧은 줄을 제거. 정렬은 analyzer 가 이미 처리하므로 생략.
+- **상한 상향:** 2000줄 → 3000줄 / 80K → 100K 자. ai_judgment 와 analyzer 양쪽 동기화 필수 (`_GEMINI_LINE_CAP` 도 동기 — false positive 잘림 경고 방지).
+- **마운트 동기화 주의:** 작업 중 `pipeline/__pycache__/ai_judgment.cpython-310.pyc` 가 `.py` 보다 새것으로 잡혀 import 실패. `touch ai_judgment.py` 로 mtime 갱신해 해결. 마운트에서 .pyc 삭제는 권한 거부됨. Codex 재검증 시 pytest 캐시 무시(`-p no:cacheprovider`)나 별도 venv 권장.
+### Next
+- Codex: SURIT-ROLLBACK-001 검증 + 푸시 — ① `cd backend && python -m pytest -q` (123 passed) 재확인 ② `git status --short -uall` 로 허용 범위(`backend/pipeline/ai_judgment.py`, `backend/analyzer.py`, `backend/pipeline/pdf_parser.py`, `backend/tests/test_pdf_native.py`, `backend/tests/test_ai_judgment_filter.py`, `.agent-harness/tasks/SURIT-ROLLBACK-001-revert-pdf-native.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md`) 만 변경됐는지 확인 ③ Cowork 가 비운 `test_pdf_native.py` 는 `git rm` 으로 완전 삭제 권장 (마운트 권한 한계로 본문만 비워뒀음) ④ 한국어 커밋 메시지로 `git push origin main`. Railway 배포 후 박화자 PDF(318p) 재테스트.
+
 ## 2026-05-26 15:27 Codex SURIT-BUG-005
 ### Changed
 - `backend/pipeline/ai_judgment.py` 검증: Gemini PDF 전달 경로가 inline bytes(`Part.from_bytes`)에서 Files API 업로드(`client.files.upload`) + URI 참조(`types.Part.from_uri`)로 전환됨.

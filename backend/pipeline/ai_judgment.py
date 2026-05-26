@@ -3,11 +3,80 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 from google import genai
 from google.genai import types
 
 from .helpers import AnalysisError, _worst_insurance_verdict, extract_json
+
+# ── 텍스트 필터링 보조 (SURIT-ROLLBACK-001) ────────────────────
+# 318p PDF 같은 대용량 입력에서 의미 없는 반복 헤더/노이즈/중복을 제거해
+# 잘림 상한 내에 실제 진료 데이터가 더 많이 담기도록 한다.
+
+# 반복되는 표 헤더로 판단할 키워드 (한 줄에 2개 이상 동시 등장 시 헤더로 본다)
+_REPEAT_HEADER_KEYWORDS = (
+    "요양기관명", "상병코드", "상병명", "진료시작일", "진료개시일",
+    "진료내역", "처방내역", "조제내역", "투약일수", "1회투약량",
+    "1일투약량", "총투약일수", "급여여부", "심사결과", "처방일자",
+    "조제일자", "수가코드", "행위명칭", "행위코드", "단가", "수량",
+    "금액", "본인부담", "공단부담", "분류", "구분",
+)
+
+# 숫자·날짜·코드 신호 (있으면 진료 데이터로 본다)
+_SIGNAL_PATTERNS = (
+    re.compile(r"\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}"),  # 날짜
+    re.compile(r"[A-Z]\d{2,}"),                       # 상병/행위 코드
+    re.compile(r"\d{3,}"),                            # 3자리 이상 숫자
+)
+
+
+def _looks_like_repeated_header(line: str) -> bool:
+    """한 줄에 _REPEAT_HEADER_KEYWORDS 키워드가 2개 이상이면 반복 헤더."""
+    if not line:
+        return False
+    norm = line.replace(" ", "").replace("\t", "")
+    hits = sum(1 for kw in _REPEAT_HEADER_KEYWORDS if kw in norm)
+    return hits >= 2
+
+
+def _has_signal(line: str) -> bool:
+    """숫자·날짜·코드 패턴 중 하나라도 있으면 의미 있는 데이터로 간주."""
+    if not line:
+        return False
+    return any(p.search(line) for p in _SIGNAL_PATTERNS)
+
+
+def _strengthen_filter(lines: list[str]) -> list[str]:
+    """반복 헤더·연속 중복·노이즈 줄을 제거한다.
+
+    SURIT-ROLLBACK-001: 318p 같은 대용량 PDF에서 잘림 상한 내에 실제 진료
+    데이터가 더 많이 들어가도록 텍스트를 압축한다. 정렬은 하지 않는다
+    (analyzer 가 이미 시간 역순으로 정렬해서 넘긴다).
+    """
+    out: list[str] = []
+    prev: str = ""
+    for raw in lines:
+        if raw is None:
+            continue
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        # 1) 매우 짧은 줄 (≤2 chars) — 단독으로는 의미 없음
+        if len(line.strip()) <= 2:
+            continue
+        # 2) 반복 헤더 (요양기관명·상병코드 등 키워드 2개↑ 포함)
+        if _looks_like_repeated_header(line):
+            continue
+        # 3) 노이즈 — 신호(숫자·날짜·코드) 전혀 없고 짧은(<10) 줄
+        if len(line.strip()) < 10 and not _has_signal(line):
+            continue
+        # 4) 직전과 동일한 줄(연속 중복)
+        if line == prev:
+            continue
+        out.append(line)
+        prev = line
+    return out
 
 # ── 의학 판단 전용 시스템 프롬프트 ──────────────────────────────
 MEDICAL_JUDGMENT_SYSTEM_PROMPT = """당신은 한국 보험 언더라이팅 전문 의사입니다.
@@ -43,8 +112,11 @@ def _finalize_raw_text_for_gemini(
     drug_change_text: str,
     presc_end_text: str,
 ) -> str:
-    # 기존: filtered_lines[:800] — OOM 방지용 보수적 상한, 대용량 세부진료 PDF 잘림 발생
-    raw_text = "\n".join(filtered_lines[:2000])
+    # SURIT-ROLLBACK-001: 잘림 상한 내 데이터 밀도를 높이기 위해 필터 강화.
+    # 반복 헤더·연속 중복·짧은 노이즈 줄을 제거하고 상한을 3000줄로 상향.
+    cleaned_lines = _strengthen_filter(filtered_lines)
+    # 기존: filtered_lines[:800] → 2000 → 3000 (SURIT-ROLLBACK-001 상향)
+    raw_text = "\n".join(cleaned_lines[:3000])
     if visit_count_lines:
         raw_text = "[10년내 질병코드별 통원횟수 집계 — Q4 7회이상통원 판단 기준]\n" \
                    + "\n".join(visit_count_lines) + "\n\n" + raw_text
@@ -58,8 +130,8 @@ def _finalize_raw_text_for_gemini(
         raw_text = drug_change_text + "\n" + raw_text
     if presc_end_text:
         raw_text = presc_end_text + "\n" + raw_text
-    # 기존: MAX_RAW_TEXT_LEN = 30_000
-    MAX_RAW_TEXT_LEN = 80_000
+    # 기존: MAX_RAW_TEXT_LEN = 30_000 → 80_000 → 100_000 (SURIT-ROLLBACK-001 상향)
+    MAX_RAW_TEXT_LEN = 100_000
     if len(raw_text) > MAX_RAW_TEXT_LEN:
         raw_text = raw_text[:MAX_RAW_TEXT_LEN] + "\n... (truncated)"
     return raw_text
@@ -216,25 +288,13 @@ async def _call_medical_judgment(
 
 
 async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_date, api_key: str) -> dict:
-    """파싱된 PDF 1건에 대해 Gemini 분석 (비동기).
-
-    SURIT-BUG-005: PDF 첨부는 Gemini Files API(client.files.upload) 로 업로드 후
-    Part.from_uri 로 참조한다. inline_data 한계로 인한 HTTP 400 을 회피하고
-    대용량 PDF 전체를 누락 없이 전달한다. 업로드 실패 시 텍스트 fallback.
-    완료 시 finally 에서 업로드 파일·임시 파일을 명시적 삭제(개인정보 보호).
-    """
-    import tempfile, pathlib
+    """파싱된 PDF 1건에 대해 Gemini 분석 (비동기)."""
     _ = reference_date
     fname = parsed_data["filename"]
     today_str = parsed_data["today_str"]
     raw_text = parsed_data["raw_text"]
-    pdf_bytes = parsed_data.get("pdf_bytes")  # SURIT-007: PDF 네이티브 첨부용
     system_prompt = parsed_data["system_prompt"]
     retry_local: list[str] = []
-    # SURIT-BUG-004: PDF 시그니처 검증 — 손상된 바이너리는 텍스트 fallback 으로 전환.
-    if pdf_bytes and not (isinstance(pdf_bytes, (bytes, bytearray)) and pdf_bytes[:5] == b"%PDF-"):
-        retry_local.append(f"[{fname}] PDF 시그니처 비정상(%PDF- 누락) → 텍스트 fallback 사용")
-        pdf_bytes = None
 
     GEMINI_TIMEOUT_SECONDS = 240
     try:
@@ -245,53 +305,12 @@ async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_dat
     except TypeError:
         api_client = genai.Client(api_key=api_key)
 
-    # SURIT-BUG-005: PDF 를 Files API 로 업로드 (inline bytes 대신 URI 참조).
-    # inline_data 한계(400 Bad Request)를 회피하고 대용량 PDF 전체를 안정적으로 전달.
-    uploaded_file_obj = None
-    tmp_path: "pathlib.Path | None" = None
-    if pdf_bytes:
-        try:
-            _tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-            try:
-                _tmp.write(pdf_bytes)
-            finally:
-                _tmp.close()
-            tmp_path = pathlib.Path(_tmp.name)
-            uploaded_file_obj = await asyncio.to_thread(
-                lambda: api_client.files.upload(
-                    file=tmp_path,
-                    config={"mime_type": "application/pdf"},
-                )
-            )
-        except Exception as _e:
-            retry_local.append(
-                f"[{fname}] Gemini Files API 업로드 실패 — {str(_e)[:300]}. 텍스트 fallback 사용."
-            )
-            uploaded_file_obj = None
-            if tmp_path is not None:
-                try:
-                    tmp_path.unlink(missing_ok=True)
-                except Exception:
-                    pass
-                tmp_path = None
-
-    def _build_contents(use_pdf: bool):
-        if use_pdf and uploaded_file_obj is not None:
-            instruction = (
-                f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n"
-                f"첨부된 PDF는 심평원에서 발급한 진료 데이터입니다. "
-                f"시스템 프롬프트의 규칙에 따라 알릴의무 항목을 정확히 판단하세요.\n\n"
-                f"[보조 분석 자료 — 사전 가공된 통원/처방/태그 데이터]\n{raw_text}"
-            )
-            pdf_part = types.Part.from_uri(
-                file_uri=uploaded_file_obj.uri,
-                mime_type="application/pdf",
-            )
-            return [pdf_part, types.Part.from_text(text=instruction)]
-        return f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n진료 데이터:\n{raw_text}"
-
-    use_pdf_native = uploaded_file_obj is not None
-    contents = _build_contents(use_pdf_native)
+    ai_result = None
+    last_error = None
+    raw_response = ""
+    MAX_RETRIES = 5
+    RETRY_DELAYS = [5, 10, 20, 40, 60]
+    contents = f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n진료 데이터:\n{raw_text}"
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         temperature=0,
@@ -304,87 +323,52 @@ async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_dat
             config=config,
         )
 
-    ai_result = None
-    last_error = None
-    raw_response = ""
-    MAX_RETRIES = 5
-    RETRY_DELAYS = [5, 10, 20, 40, 60]
-
-    try:
-        for attempt in range(MAX_RETRIES):
-            try:
-                if hasattr(api_client, "aio") and hasattr(api_client.aio.models, "generate_content"):
-                    message = await api_client.aio.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=contents,
-                        config=config,
-                    )
-                else:
-                    message = await asyncio.to_thread(_sync_generate)
-                raw_response = message.text if getattr(message, "text", None) else ""
-                if not raw_response.strip():
-                    raise ValueError("AI 응답이 비어있습니다.")
-                ai_result = extract_json(raw_response)
-                break
-            except (ValueError, json.JSONDecodeError) as e:
-                last_error = e
-                if attempt < MAX_RETRIES - 1:
-                    continue
-                return {
-                    "filename": fname,
-                    "ai_result": None,
-                    "retry_warnings": retry_local,
-                    "error": f"AI 응답 파싱 오류: {e}",
-                    "raw_response_snip": raw_response[:800],
-                }
-            except Exception as e:
-                err_str = str(e)
-                # SURIT-BUG-004: PDF 네이티브 경로에서 400(Bad Request/INVALID_ARGUMENT)
-                # 발생 시 상세 메시지를 retry_warnings 로 노출하고 텍스트 fallback 으로 즉시 재시도.
-                is_bad_request = (
-                    "400" in err_str
-                    or "INVALID_ARGUMENT" in err_str.upper()
-                    or "Bad Request" in err_str
+    for attempt in range(MAX_RETRIES):
+        try:
+            if hasattr(api_client, "aio") and hasattr(api_client.aio.models, "generate_content"):
+                message = await api_client.aio.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=contents,
+                    config=config,
                 )
-                if is_bad_request and use_pdf_native and attempt < MAX_RETRIES - 1:
-                    retry_local.append(
-                        f"[{fname}] Gemini 400 (PDF 첨부 형식 의심) — 상세: {err_str[:400]}. "
-                        f"텍스트 fallback 으로 즉시 재시도."
-                    )
-                    use_pdf_native = False
-                    contents = _build_contents(False)
-                    continue
-                _retryable = ("503", "UNAVAILABLE", "high demand", "overloaded",
-                              "429", "RESOURCE_EXHAUSTED", "rate limit", "quota")
-                if any(s in err_str for s in _retryable) and attempt < MAX_RETRIES - 1:
-                    wait = RETRY_DELAYS[attempt]
-                    retry_local.append(
-                        f"[{fname}] Gemini 호출이 지연되어 {wait}초 후 재시도합니다... ({attempt + 1}/{MAX_RETRIES - 1})"
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-                return {"filename": fname, "ai_result": None, "retry_warnings": retry_local, "error": str(e)[:500]}
-
-        if ai_result is None:
+            else:
+                message = await asyncio.to_thread(_sync_generate)
+            raw_response = message.text if getattr(message, "text", None) else ""
+            if not raw_response.strip():
+                raise ValueError("AI 응답이 비어있습니다.")
+            ai_result = extract_json(raw_response)
+            break
+        except (ValueError, json.JSONDecodeError) as e:
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                continue
             return {
                 "filename": fname,
                 "ai_result": None,
                 "retry_warnings": retry_local,
-                "error": str(last_error),
-                "raw_response_snip": raw_response[:800] if raw_response else "",
+                "error": f"AI 응답 파싱 오류: {e}",
+                "raw_response_snip": raw_response[:800],
             }
+        except Exception as e:
+            err_str = str(e)
+            _retryable = ("503", "UNAVAILABLE", "high demand", "overloaded",
+                          "429", "RESOURCE_EXHAUSTED", "rate limit", "quota")
+            if any(s in err_str for s in _retryable) and attempt < MAX_RETRIES - 1:
+                wait = RETRY_DELAYS[attempt]
+                retry_local.append(
+                    f"[{fname}] Gemini 호출이 지연되어 {wait}초 후 재시도합니다... ({attempt + 1}/{MAX_RETRIES - 1})"
+                )
+                await asyncio.sleep(wait)
+                continue
+            return {"filename": fname, "ai_result": None, "retry_warnings": retry_local, "error": str(e)}
 
-        return {"filename": fname, "ai_result": ai_result, "retry_warnings": retry_local, "error": None}
-    finally:
-        # SURIT-BUG-005: Files API 업로드 파일 + 임시 파일 명시적 삭제 (개인정보 보호).
-        # 48시간 자동 삭제에 의존하지 않고 즉시 정리.
-        if uploaded_file_obj is not None:
-            try:
-                await asyncio.to_thread(lambda: api_client.files.delete(name=uploaded_file_obj.name))
-            except Exception:
-                pass
-        if tmp_path is not None:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+    if ai_result is None:
+        return {
+            "filename": fname,
+            "ai_result": None,
+            "retry_warnings": retry_local,
+            "error": str(last_error),
+            "raw_response_snip": raw_response[:800] if raw_response else "",
+        }
+
+    return {"filename": fname, "ai_result": ai_result, "retry_warnings": retry_local, "error": None}
