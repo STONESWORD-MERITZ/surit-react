@@ -88,17 +88,21 @@ def _build_truncation_warning(truncated_files: list) -> str | None:
     )
 
 
-async def _parse_all_pdfs(active_files: list, birthdate_pw: str) -> tuple[list, list]:
-    """PDF들을 순차 파싱해 (레코드, 파싱오류) 반환. 레코드 0건이면 AnalysisError.
+async def _parse_all_pdfs(active_files: list, birthdate_pw: str) -> tuple[list, list, dict]:
+    """PDF들을 순차 파싱해 (레코드, 파싱오류, 파일명→PDF 바이너리) 반환. 레코드 0건이면 AnalysisError.
 
     OOM 핫픽스: 여러 PDF를 동시 파싱하면 pdfplumber 페이지 캐시가 파일 수만큼
     메모리에 동시에 쌓여 Railway 컨테이너 메모리 한도를 초과, 프로세스가 강제
     종료됐다 (files=2 에서 재현). 파일을 한 개씩 순차 처리해 메모리 피크를
     PDF 1개분으로 제한한다. parse_single_pdf 는 finally 에서 자체 gc 하므로
     다음 파일 파싱 전에 직전 파일의 메모리가 해제된다.
+
+    SURIT-007: 파일명별 PDF 바이너리(pdf_bytes_by_fn)도 누적해 반환 — Gemini
+    네이티브 첨부에 사용. 바이너리는 Gemini 호출 종료까지 메모리에 보존된다.
     """
     all_records = []
     parse_errors = []
+    pdf_bytes_by_fn: dict[str, bytes] = {}
     # ── PDF 파싱 (순차 처리 — 메모리 피크 억제) ──
     for i, uf in enumerate(active_files):
         fn = getattr(uf, "name", None) or getattr(uf, "filename", None) or f"file_{i}"
@@ -109,6 +113,8 @@ async def _parse_all_pdfs(active_files: list, birthdate_pw: str) -> tuple[list, 
             continue
         all_records.extend(pr["records"])
         parse_errors.extend(pr["parse_errors"])
+        if pr.get("pdf_bytes"):
+            pdf_bytes_by_fn[pr.get("filename") or fn] = pr["pdf_bytes"]
 
     if not all_records:
         if parse_errors:
@@ -120,7 +126,7 @@ async def _parse_all_pdfs(active_files: list, birthdate_pw: str) -> tuple[list, 
             "심평원에서 발급한 진료내역 PDF가 맞는지 확인해 주세요."
         )
 
-    return all_records, parse_errors
+    return all_records, parse_errors, pdf_bytes_by_fn
 
 
 def _build_drug_change_text(drug_change_summary: list[dict]) -> str:
@@ -776,7 +782,7 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
     _d10y_dt = _subtract_years(today, 10)   # SURIT-004: 달력 기준 10년
     retry_warnings = []
 
-    all_records, parse_errors = await _parse_all_pdfs(active_files, birthdate_pw)
+    all_records, parse_errors, pdf_bytes_by_fn = await _parse_all_pdfs(active_files, birthdate_pw)
     # ── disease_stats + raw_entries 빌드 ─────────────────────────
     disease_stats, cross_surgery_hints, date_warnings, raw_entries, lines_by_file = \
         build_disease_stats(all_records, today)
@@ -832,12 +838,15 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
             drug_change_text,
             presc_end_text,
         )
-        # SURIT-003: 초대용량 PDF로 AI 입력이 잘렸는지 감지 (잘림 로직은 불변)
-        if _is_gemini_input_truncated(flines, rt_part):
+        # SURIT-007: PDF 바이너리가 있으면 Gemini 네이티브 첨부 → 잘림 무관.
+        # PDF 바이너리가 없을 때만(파싱 실패 등) 텍스트 fallback 의 잘림 여부 감지.
+        pdf_bytes = pdf_bytes_by_fn.get(fn)
+        if not pdf_bytes and _is_gemini_input_truncated(flines, rt_part):
             truncated_files.append(fn)
         gemini_payloads.append({
             "filename": fn,
             "raw_text": rt_part,
+            "pdf_bytes": pdf_bytes,
             "system_prompt": system_prompt,
             "today_str": today_str,
         })

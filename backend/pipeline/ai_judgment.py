@@ -221,6 +221,7 @@ async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_dat
     fname = parsed_data["filename"]
     today_str = parsed_data["today_str"]
     raw_text = parsed_data["raw_text"]
+    pdf_bytes = parsed_data.get("pdf_bytes")  # SURIT-007: PDF 네이티브 첨부용
     system_prompt = parsed_data["system_prompt"]
     retry_local: list[str] = []
 
@@ -238,7 +239,20 @@ async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_dat
     raw_response = ""
     MAX_RETRIES = 5
     RETRY_DELAYS = [5, 10, 20, 40, 60]
-    contents = f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n진료 데이터:\n{raw_text}"
+    # SURIT-007: PDF 바이너리가 있으면 Gemini 네이티브 첨부 — 잘림 없이 전체 PDF 전달.
+    # 보조 가공 데이터(통원집계·태깅·약변경)는 텍스트로 함께 동봉한다.
+    if pdf_bytes:
+        instruction = (
+            f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n"
+            f"첨부된 PDF는 심평원에서 발급한 진료 데이터입니다. "
+            f"시스템 프롬프트의 규칙에 따라 알릴의무 항목을 정확히 판단하세요.\n\n"
+            f"[보조 분석 자료 — 사전 가공된 통원/처방/태그 데이터]\n{raw_text}"
+        )
+        pdf_part = types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")
+        contents = [pdf_part, instruction]
+    else:
+        # 텍스트 fallback (PDF 파싱 실패 등)
+        contents = f"고객 기준일: {today_str}\n심사 유형: {product_type}\n\n진료 데이터:\n{raw_text}"
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         temperature=0,

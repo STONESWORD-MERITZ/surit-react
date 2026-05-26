@@ -18,6 +18,49 @@
 
 Use newest entries at the top.
 
+## 2026-05-26 13:24 Codex SURIT-007
+### Changed
+- `backend/pipeline/pdf_parser.py` 검증 및 보강: SURIT-007 `pdf_bytes` 반환 경로 유지, 이번 검증 중 발견한 `page.flush_cache()` 중복 2곳 제거(각 루프 1회 유지).
+- `backend/pipeline/ai_judgment.py` 검증: `pdf_bytes` 존재 시 `types.Part.from_bytes(..., mime_type="application/pdf")` 생성 후 `[pdf_part, instruction]` 리스트로 Gemini 호출.
+- `backend/analyzer.py` 검증: `pdf_bytes_by_fn`을 `gemini_payloads`로 전달하고, `truncation_warning` 감지는 `pdf_bytes`가 없는 텍스트 fallback 경로에서만 수행.
+- `backend/tests/test_pdf_native.py` 신규 테스트 2건 검증: `pdf_bytes` 보존, SDK PDF Part 생성.
+- `.agent-harness/tasks/SURIT-007-gemini-pdf-native.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md` 하네스 문서 정리.
+### Verified
+- [x] `cd backend && python -m pytest -q` - 120 passed
+- [x] PDF 첨부 경로 확인: `pdf_bytes` payload는 `[pdf_part, instruction]` 리스트 contents 사용
+- [x] `pdf_bytes` 없는 경우 기존 텍스트 fallback 경로 유지 확인
+- [x] `truncation_warning`은 fallback 경로에서만 발생하도록 `if not pdf_bytes and _is_gemini_input_truncated(...)` 확인
+- [x] `page.flush_cache()`는 `pdf_parser.py` 두 페이지 순회 루프에 각각 정확히 1개씩만 남음
+- [x] `git status --short -uall` - 허용 범위만 변경됨
+- [x] `git push origin main` - Codex publish step에서 완료
+### Notes
+- 실제 대용량 PDF(`박화자 세부report.pdf`)는 배포 후 Human이 직접 업로드해 `truncation_warning` 미발생 여부를 확인해야 함.
+- SURIT-008 후보: PDF 네이티브 첨부 경로를 실제 Railway 배포 환경에서 대용량 샘플로 재검증하고, 필요 시 Gemini inline 용량 초과 대비 Files API 분기 추가.
+### Next
+- Human: 실제 PDF 테스트 및 최종 검토.
+- SURIT-008 후보 검토: 대용량 PDF 배포 검증 / Files API fallback 필요 여부 결정.
+
+## 2026-05-26 02:59 Claude SURIT-007
+### Changed
+- `backend/pipeline/pdf_parser.py` — `parse_single_pdf` 반환 dict 에 `pdf_bytes` 키 추가, `finally` 의 `del pdf_data` 제거(바이트는 Gemini 호출 종료까지 보존 필요).
+- `backend/pipeline/ai_judgment.py` — `analyze_single_pdf` 에서 `pdf_bytes` 가 있으면 `types.Part.from_bytes(data=..., mime_type="application/pdf")` 로 PDF 네이티브 첨부, 보조 가공 텍스트(통원집계·태깅·약변경)는 instruction 으로 동봉. 없으면 기존 텍스트 fallback.
+- `backend/analyzer.py` — `_parse_all_pdfs` 반환을 `(레코드, 오류, pdf_bytes_by_fn)` 3-튜플로 확장, `gemini_payloads` 에 `pdf_bytes` 필드 추가. PDF 바이너리가 있을 때는 `_is_gemini_input_truncated` 감지를 스킵(잘림 무관).
+- `backend/tests/test_pdf_native.py` — 회귀 테스트 2건 신규: `parse_single_pdf` 가 `pdf_bytes` 키 보존, `types.Part.from_bytes` 가 PDF mime 으로 정상 동작.
+- `.agent-harness/tasks/SURIT-007-gemini-pdf-native.md` — 태스크 파일 신규 생성.
+### Verified
+- [x] `cd backend && python -m pytest -q` — **120 passed** (기존 118 + 신규 2)
+- [x] google-genai==2.6.0 `types.Part.from_bytes` 동작 확인 (Part.inline_data.mime_type == "application/pdf")
+- [x] mock 기반 통합 테스트 3건(`test_run_analysis_q3_visit_7plus` 등)도 통과 — `_parse_all_pdfs` 3-튜플 반환 회귀 없음
+- [ ] npm lint/test/build — 해당 없음 (백엔드 전용 변경)
+### Notes
+- **1단계 진단:** `google-genai==2.6.0` SDK 의 `types.Part.from_bytes(data=..., mime_type="application/pdf")` 정상 동작 확인. `Part.inline_data.mime_type == "application/pdf"` 로 inline 첨부 가용. main.py 한도(파일당 15MB·총 40MB)는 SDK inline 한도(~20MB) 이내라 Files API 분기 불필요.
+- **구현 방식:** PDF 첨부 시 `contents=[pdf_part, instruction]` 리스트로 호출. 사전 가공된 텍스트(통원집계·교차검증·약변경·태깅)는 PDF 만으로 추론하기 어려워 instruction 안에 보조 자료로 함께 동봉. PDF 바이너리가 없는 경우(파싱 실패 등)는 기존 텍스트 contents 로 fallback.
+- **truncation_warning 처리:** PDF 첨부 경로에서는 잘림 자체가 없으므로 `_is_gemini_input_truncated` 호출을 조건부 스킵(`if not pdf_bytes and _is_gemini_input_truncated(...)`). 텍스트 fallback 경로에서만 경고 유지. 박화자 세부report.pdf(318p, 29만 자) 같은 대용량도 누락 없이 전달됨.
+- **메모리:** PDF 바이너리는 Gemini 호출 종료까지 메모리에 보존. 최악 90MB(15MB × 6파일). 순차 파싱(OOM 핫픽스)은 유지 — 파싱 메모리 피크는 PDF 1개분.
+- 작업 중 마운트 캐시 churn 으로 `analyzer.py` 가 904줄에서 잘려 동기화(`return {...}` 블록 누락 → 통합 테스트 3건이 `result=None` 으로 실패). Windows 원본 기준 누락된 28줄(`# summary_reports 빌드` ~ `return {...}`)을 mount 에 이어 붙여 복구 후 120 passed 확인.
+### Next
+- Codex: SURIT-007 검증 + 푸시 — `cd backend && python -m pytest -q`(120) 재확인, `backend/pipeline/pdf_parser.py`·`backend/pipeline/ai_judgment.py`·`backend/analyzer.py`·`backend/tests/test_pdf_native.py` + 태스크 파일 커밋·푸시. 실제 대용량 PDF로 Gemini 응답 품질 점검 권장(박화자 PDF 가능).
+
 ## 2026-05-26 23:58 Codex SURIT-006
 ### Changed
 - `backend/analyzer.py` 검증 및 보강: 9개 분해 헬퍼에 `_` 접두사, 타입 힌트, docstring이 모두 있는지 확인하고 누락된 타입 힌트 보강.
