@@ -8,6 +8,14 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 ## Released
 
+- `src/pages/Disclosure.tsx` - Codex - SURIT-BUG-007 verification/publish - 2026-05-26 released
+- `.agent-harness/handoff.md` - Codex - SURIT-BUG-007 handoff update - 2026-05-26 released
+- `.agent-harness/locks.md` - Codex - SURIT-BUG-007 lock release - 2026-05-26 released
+
+- `.agent-harness/tasks/SURIT-BUG-007-frontend-timeout.md` — Claude (Cowork) · SURIT-BUG-007 · 2026-05-27 해제
+- `src/pages/Disclosure.tsx` — Claude (Cowork) · SURIT-BUG-007 · 2026-05-27 해제
+
+
 - `backend/main.py` - Codex - SURIT-BUG-006 verification/publish - 2026-05-26 released
 - `.agent-harness/handoff.md` - Codex - SURIT-BUG-006 handoff update - 2026-05-26 released
 - `.agent-harness/locks.md` - Codex - SURIT-BUG-006 lock release - 2026-05-26 released

@@ -838,7 +838,10 @@ export default function Disclosure({ initialMode = "agent" }: { initialMode?: Au
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: form,
-        signal: AbortSignal.timeout(180_000),
+        // SURIT-BUG-007: 서버 ANALYZE_TIMEOUT_SECONDS=300 과 동기화.
+        // 기존 180_000(180s) → 350_000(350s). 서버보다 50s 여유를 둬서
+        // 서버가 정상 응답할 시간을 보장하고 "signal timed out" 오류를 막는다.
+        signal: AbortSignal.timeout(350_000),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);

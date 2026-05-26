@@ -18,6 +18,38 @@
 
 Use newest entries at the top.
 
+## 2026-05-26 18:31 Codex SURIT-BUG-007
+### Changed
+- `src/pages/Disclosure.tsx` 검증: 분석 요청 AbortSignal timeout이 180초에서 350초로 연장됨.
+- `.agent-harness/tasks/SURIT-BUG-007-frontend-timeout.md` 확인.
+- `.agent-harness/handoff.md`, `.agent-harness/locks.md` 하네스 기록 및 잠금 정리.
+### Verified
+- [x] `src/pages/Disclosure.tsx` - `AbortSignal.timeout(350_000)` 확인
+- [x] `npx tsc -p tsconfig.app.json --noEmit` - passed
+- [x] `npm run build` - passed (Vite chunk-size warning only)
+- [x] `git status --short -uall` - 허용 범위만 변경됨
+- [x] `git push origin main` - Codex publish step에서 완료
+### Notes
+- 프런트 타임아웃 350s가 서버 타임아웃 300s보다 50s 길어져 요청 체인이 동기화됨.
+### Next
+- Human: Vercel 배포 후 박화자 PDF 재테스트.
+- "signal timed out" 없이 결과 나오면 최종 해소.
+
+## 2026-05-27 07:35 Claude SURIT-BUG-007
+### Changed
+- `src/pages/Disclosure.tsx` — `analyze` 요청의 `signal: AbortSignal.timeout(180_000)` → `350_000` (350초) 으로 상향. 서버 `ANALYZE_TIMEOUT_SECONDS=300` 보다 50초 여유. 변경 이유 주석 3줄 추가.
+- `.agent-harness/tasks/SURIT-BUG-007-frontend-timeout.md` — 태스크 파일 신규 생성.
+### Verified
+- [x] `npx tsc -p tsconfig.app.json --noEmit` — 통과 (출력 없음 = 성공).
+- [x] `npx vite build --outDir /tmp/surit-build --emptyOutDir` — 통과 (400 modules transformed, 524 kB main chunk, gzip 152 kB). `chunkSizeWarningLimit` 경고는 기존 상태와 동일.
+- [ ] `npm run build` (기본 `dist/`) — 실행 가능하나 샌드박스 마운트 권한으로 `dist/` 내 기존 파일 `unlink` 실패. **코드/타입 문제 아님**. Codex가 Windows 환경에서는 그대로 통과해야 함.
+### Notes
+- **파일 복구:** 작업 직전 마운트 동기화 이슈로 `src/pages/Disclosure.tsx` 가 985줄 → 972줄로 truncate 됨 (UTF-8 중간 깨짐). `git show HEAD:src/pages/Disclosure.tsx` 로 985줄 원본 복원 후 Python 으로 1회 치환하여 988줄(주석 3줄 추가)로 마운트에 직접 write. 최종 파일 정상 닫힘(`</div>` ... `}` ).
+- **타임아웃 체인 정리:** 서버 300s(SURIT-BUG-006) < 프런트 350s(이 태스크) — 서버가 먼저 끊고 프런트가 그 응답을 받을 시간 50s 확보. Railway 게이트웨이 측 타임아웃은 별도 확인 필요(보통 300s 이상).
+- 빌드 결과물 자체는 `/tmp/surit-build/index-CQ3QmbCv.js` 등으로 정상 생성됨 (검증용, 마운트의 `dist/` 는 손대지 않음).
+### Next
+- Codex: SURIT-BUG-007 검증 + 푸시 — ① `src/pages/Disclosure.tsx` 의 `AbortSignal.timeout(350_000)` 재확인 ② `npx tsc -p tsconfig.app.json --noEmit` + `npm run build` Windows 환경에서 재실행(마운트 권한 회피) ③ `git status --short -uall` 로 허용 범위(`src/pages/Disclosure.tsx`, `.agent-harness/tasks/SURIT-BUG-007-frontend-timeout.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md`) 만 변경됐는지 확인 ④ 한국어 커밋 메시지(`SURIT-BUG-007: 프런트 타임아웃 180→350 동기화`)로 `git push origin main` ⑤ Vercel 배포 후 318p 박화자 PDF 로 "signal timed out" 사라짐 확인.
+
 ## 2026-05-26 17:52 Codex SURIT-BUG-006
 ### Changed
 - `backend/main.py` 검증: `ANALYZE_TIMEOUT_SECONDS`가 170초에서 300초로 연장됨.
