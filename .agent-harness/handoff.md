@@ -18,6 +18,47 @@
 
 Use newest entries at the top.
 
+## 2026-05-26 15:27 Codex SURIT-BUG-005
+### Changed
+- `backend/pipeline/ai_judgment.py` 검증: Gemini PDF 전달 경로가 inline bytes(`Part.from_bytes`)에서 Files API 업로드(`client.files.upload`) + URI 참조(`types.Part.from_uri`)로 전환됨.
+- `.agent-harness/tasks/SURIT-BUG-005-gemini-files-api.md` 확인.
+- `.agent-harness/handoff.md`, `.agent-harness/locks.md` 하네스 기록 및 잠금 정리.
+### Verified
+- [x] `cd backend && python -m pytest -q` - 120 passed
+- [x] `Part.from_bytes` / `from_bytes` 잔존 없음
+- [x] Files API 경로 확인: `client.files.upload(...)` 후 `types.Part.from_uri(file_uri=uploaded_file_obj.uri, mime_type="application/pdf")`
+- [x] `finally` 정리 확인: `client.files.delete(name=uploaded_file_obj.name)` 및 `tmp_path.unlink(missing_ok=True)`
+- [x] PDF 시그니처 검증 유지 확인: `pdf_bytes[:5] == b"%PDF-"`
+- [x] 400 감지 + 텍스트 fallback 즉시 재시도 유지 확인
+- [x] `git status --short -uall` - 허용 범위만 변경됨
+- [x] `git push origin main` - Codex publish step에서 완료
+### Notes
+- backend 전용 변경이라 npm lint/test/build는 미실행.
+### Next
+- Human: Railway 배포 후 박화자 PDF 테스트.
+
+## 2026-05-27 06:22 Claude SURIT-BUG-005
+### Changed
+- `backend/pipeline/ai_judgment.py` — `analyze_single_pdf` 함수 전체를 Gemini Files API 기반으로 재작성:
+  - PDF 바이너리를 `tempfile.NamedTemporaryFile` 로 임시 저장 후 `api_client.files.upload(file=Path, config={"mime_type":"application/pdf"})` 으로 업로드 (asyncio.to_thread 비동기 래핑).
+  - `types.Part.from_uri(file_uri=uploaded.uri, mime_type="application/pdf")` 로 contents 구성 — 기존 `Part.from_bytes(data=pdf_bytes, ...)` 코드는 완전 제거.
+  - 함수 전체를 `try / finally` 로 감싸 finally 에서 `client.files.delete(name=uploaded.name)` + 임시 파일 `unlink(missing_ok=True)` 명시적 삭제(개인정보 보호, 48시간 자동 삭제 미의존).
+  - 업로드 실패 시 `retry_local` 에 사유 로깅 + 텍스트 fallback 활성화. BUG-004 의 400 감지·텍스트 fallback 재시도 로직과 PDF 시그니처 검증(%PDF-)은 그대로 유지.
+- `.agent-harness/tasks/SURIT-BUG-005-gemini-files-api.md` — 태스크 파일 신규 생성.
+### Verified
+- [x] `cd backend && python -m pytest -q` — **120 passed** (변경 후에도 기존 통합 테스트 모두 통과 — analyzer 통합 테스트는 `analyze_single_pdf` 를 monkeypatch 로 mock 하므로 함수 내부 변경은 영향 없음)
+- [x] `ast.parse` 통과 (Windows 원본 기준 구문 정상)
+- [x] SDK 진단: `types.Part.from_uri(file_uri=..., mime_type=...)` 가 정상 Part 생성 (file_data 채워짐), `client.files.upload` 는 SDK 2.6.0 표준 API
+- [ ] npm lint/test/build — 해당 없음 (백엔드 전용 변경)
+### Notes
+- **1단계 진단:** SDK 2.6.0 의 `types.Part.from_uri` 가용성 사전 확인 (file_data 채워짐). `client.files.upload`/`client.files.delete` 는 SDK 표준 API. 직접 Client 호출은 샌드박스 SOCKS proxy 이슈로 막혔지만 실패 시 fallback 으로 안전 처리.
+- **400 근본 원인 가설:** inline_data 의 base64 인코딩 후 페이로드가 SDK/Gemini 측 한계(또는 특정 PDF 구조와의 호환성)를 초과 → HTTP 400. Files API 는 별도 업로드 채널로 이 제약을 우회.
+- **메모리 효과:** Gemini 호출 중 PDF 바이너리를 클라이언트 메모리에 유지할 필요가 없어짐 (업로드 후 URI 만 보유) — Railway 메모리 압박도 완화. 단, 임시 파일 일시 점유는 발생.
+- **개인정보 보호:** 업로드된 PDF 는 분석 직후 `files.delete` 로 명시적 삭제. 임시 파일은 finally 에서 unlink.
+- **degraded mode:** 업로드 실패해도 텍스트 fallback (`_finalize_raw_text_for_gemini`) 으로 동작 — 서비스 무중단.
+### Next
+- Codex: SURIT-BUG-005 검증 + 푸시 — `cd backend && python -m pytest -q`(120) 재확인, `backend/pipeline/ai_judgment.py` + 태스크 파일 커밋·푸시. 실제 박화자 PDF(318p) 로 Railway 에서 200 응답 확인 권장.
+
 ## 2026-05-26 13:24 Codex SURIT-007
 ### Changed
 - `backend/pipeline/pdf_parser.py` 검증 및 보강: SURIT-007 `pdf_bytes` 반환 경로 유지, 이번 검증 중 발견한 `page.flush_cache()` 중복 2곳 제거(각 루프 1회 유지).

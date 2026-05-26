@@ -8,6 +8,15 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 ## Released
 
+- `backend/pipeline/ai_judgment.py` - Codex - SURIT-BUG-005 verification/publish - 2026-05-26 released
+- `backend/tests/` - Codex - SURIT-BUG-005 verification - 2026-05-26 released
+- `.agent-harness/handoff.md` - Codex - SURIT-BUG-005 handoff update - 2026-05-26 released
+- `.agent-harness/locks.md` - Codex - SURIT-BUG-005 lock release - 2026-05-26 released
+
+- `.agent-harness/tasks/SURIT-BUG-005-gemini-files-api.md` — Claude (Cowork) · SURIT-BUG-005 · 2026-05-27 해제
+- `backend/pipeline/ai_judgment.py` — Claude (Cowork) · SURIT-BUG-005 · 2026-05-27 해제
+- `backend/tests/` — Claude (Cowork) · SURIT-BUG-005 · 2026-05-27 해제 (미수정 — 기존 mock 통합 테스트로 회귀 검증)
+
 - `backend/pipeline/ai_judgment.py` - Codex - SURIT-007 verification/publish - 2026-05-26 released
 - `backend/pipeline/pdf_parser.py` - Codex - SURIT-007 verification/publish - 2026-05-26 released
 - `backend/analyzer.py` - Codex - SURIT-007 verification/publish - 2026-05-26 released
