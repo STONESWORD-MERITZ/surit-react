@@ -7,7 +7,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from filters import (
     build_code_based_items,
     PRODUCT_HEALTH,
-    PRODUCT_EASY,
     _chronic_drug_hits,
     CHRONIC_DRUG_CATEGORIES,
 )
@@ -277,69 +276,8 @@ def test_health_q3_visit7_with_inpatient():
     assert "R-H-Q3-INP-10Y" in rule_ids
 
 
-# ── 간편 ────────────────────────────────────────────────────────
-
-
-def test_easy_q2_inpatient_only_no_visit_rule():
-    """간편 Q2는 통원/투약 사유 없어야 한다"""
-    visits = [f"2025-{m:02d}-15" for m in range(1, 10)]
-    ds = {
-        "K21": _disease(
-            code="K21",
-            visits=visits,
-            pharma_dates={"2025-01-01": 60},
-            first="2025-01-15",
-            latest="2025-09-15",
-        )
-    }
-    items = build_code_based_items(ds, REF, PRODUCT_EASY)
-    rule_ids = {it["_rule_id"] for it in items}
-    assert "R-E-Q2-INP-10Y" not in rule_ids  # 입원 없음
-    assert all(not rid.startswith("R-E-Q2-VISIT") for rid in rule_ids)
-    assert all(not rid.startswith("R-E-Q2-MED") for rid in rule_ids)
-
-
-def test_easy_q1_drug_change():
-    ds = {
-        "E11": _disease(code="E11", first="2023-01-01", latest="2026-04-01")
-    }
-    ds["E11"]["drug_change_in_3m"] = True
-    items = build_code_based_items(
-        ds, REF, PRODUCT_EASY, drug_change_groups={"E11"}
-    )
-    assert any(it["_rule_id"] == "R-E-Q1-DRUG-CHANGE" for it in items)
-
-
-def test_easy_q3_only_simple_codes():
-    """간편 Q3는 simple_q3_allowed_prefixes 만"""
-    ds_diabetes = {
-        "E11": _disease(code="E11", visits=["2024-01-01"], first="2024-01-01", latest="2024-01-01")
-    }
-    ds_cancer = {
-        "C50": _disease(code="C50", visits=["2024-01-01"], first="2024-01-01", latest="2024-01-01")
-    }
-    items_d = build_code_based_items(ds_diabetes, REF, PRODUCT_EASY)
-    items_c = build_code_based_items(ds_cancer, REF, PRODUCT_EASY)
-    assert not any(
-        it["_rule_id"] == "R-E-Q3-CRITICAL-5Y" for it in items_d
-    )  # 당뇨 X
-    assert any(
-        it["_rule_id"] == "R-E-Q3-CRITICAL-5Y" for it in items_c
-    )  # 암 O
-
-
-def test_easy_q1_inpatient_3m():
-    ds = {
-        "I63": _disease(
-            code="I63",
-            inpatients=["2026-03-01"],
-            first="2026-03-01",
-            latest="2026-03-15",
-        )
-    }
-    items = build_code_based_items(ds, REF, PRODUCT_EASY)
-    assert any(it["_rule_id"] == "R-E-Q1-INP-3M" for it in items)
-    assert any(it["_rule_id"] == "R-E-Q3-CRITICAL-5Y" for it in items)  # 뇌경색 Q3도
+# SURIT-BUG-008: 간편 룰 테스트 4건 제거 (test_easy_q2_inpatient_only_no_visit_rule,
+# test_easy_q1_drug_change, test_easy_q3_only_simple_codes, test_easy_q1_inpatient_3m).
 
 
 # ── 약물 카테고리 매처 ───────────────────────────────────────────

@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timedelta
 
 from filters import build_code_based_items as _build_code_based_items
-from meritz_easy_rules import evaluate_meritz_easy
+# SURIT-BUG-008: meritz_easy_rules.evaluate_meritz_easy 제거.
 
 # ── pipeline re-export (테스트·외부 임포트 호환) ─────────────────
 from pipeline.helpers import (
@@ -30,14 +30,12 @@ from pipeline.helpers import (
     get_diagnosis_code,
     get_diagnosis_name,
     get_val,
-    is_simple_q3_allowed,
     normalize_code,
     parse_date,
     row_is_junk,
     _is_surgery_match,
     _subtract_years,
     HEALTH_Q5_CODES,
-    SIMPLE_Q3_CODES,
 )
 from pipeline.pdf_parser import detect_file_type, parse_single_pdf
 from pipeline.disease_aggregator import (
@@ -274,7 +272,9 @@ def _build_system_prompt(
 ) -> str:
     """상품유형별 Gemini 시스템 프롬프트 전문을 구성."""
     # ── 시스템 프롬프트 구성 ─────────────────────────────────────
-    is_health = product_type == "건강체/표준체 (일반심사)"
+    # SURIT-BUG-008: 간편심사 제거 — 건강체 분기만 유지.
+    is_health = True
+    _ = product_type  # 시그니처 호환 유지
     step2_tag_rules = (
         "건강체/표준체 기준:\n"
         "- [IN_3M] 있어야만 → Q1 배정 가능\n"
@@ -285,14 +285,6 @@ def _build_system_prompt(
         "- [IN_10Y]만 있고 [IN_3M] 없으면 → Q3만 배정 (Q1 절대 불가)\n"
         "★ 사용 가능한 질문번호: Q1, Q2, Q3, Q4 뿐. Q5는 절대 사용 금지.\n"
         "  Q1=3개월(진단·투약·특정약물), Q2=1년(추가검사), Q3=10년(입원/수술/7회이상/30일이상), Q4=5년(중대질병)"
-    ) if is_health else (
-        "간편심사 기준:\n"
-        "- [IN_3M] 있어야만 → Q1 배정 가능\n"
-        "- [IN_5Y] 있어야만 → Q3 배정 가능\n"
-        "- [IN_10Y] 있어야만 → Q2 배정 가능\n"
-        "- [IN_3M] 없으면 → Q1 배정 절대 불가\n"
-        "- [IN_10Y]만 있고 [IN_3M] 없으면 → Q2만 배정 (Q1 절대 불가)\n"
-        "★ 사용 가능한 질문번호: Q1, Q2, Q3 뿐. Q4/Q5는 절대 사용 금지."
     )
 
     if is_health:
@@ -418,68 +410,6 @@ Q4. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
             "  - 건강검진 항목으로 시행된 검사"
         )
         q3_diabetes_note = "(Q3만)"
-    else:
-        criteria_text = f"""
-[간편심사(유병자 3-5-5) 알릴의무 3문항] (기준일: {today_str})
-Q1. 최근 3개월({d_3m} 이후) — 태그 [IN_3M] 항목만:
-    ① 질병확정진단 / 의심소견 / 추가검사필요소견 / 입원 / 수술
-    ② 3개월 이전부터 복용하던 약의 변화 → 아래 기준으로 Q1 판단:
-       [가입 불가 → Q1 해당]
-       - 약 종류 자체가 바뀐 경우 (성분명 변경)
-       - 3개월 이내 완전히 새로운 약이 추가된 경우
-       - 동일 약의 용량이 증가한 경우 (예: 메트포르민 500mg → 1000mg)
-       [가입 가능 → Q1 해당 아님]
-       - 동일 약을 변경 없이 계속 복용 중인 경우
-       - 동일 약의 용량만 감소한 경우 (예: 메트포르민 1000mg → 500mg)
-       - 복용하던 약을 중단한 경우
-Q2. 최근 10년({d_10y} 이후) — 태그 [IN_10Y] 항목만: 입원 또는 수술(제왕절개 포함)
-Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병 확정진단만 해당
-    ① 암: C00~C97, D00~D09
-    ② 뇌출혈: I60~I62
-    ③ 뇌경색: I63~I64
-    ④ 협심증: I20
-    ⑤ 심근경색: I21~I22
-    ⑥ 심장판막증: I05~I09, I34~I38
-    ⑦ 간경화: K74
-
-    ★ Q3 절대 면제 (아무리 심해도 Q3 배정 불가):
-    - 당뇨병 (E10~E14 계열) → 간편심사 Q3 해당 아님
-    - 고혈압 (I10~I15) → Q3 해당 아님
-    - 무릎관절증·척추협착 등 근골격계 → Q3 해당 아님
-    - 만성신부전·갑상선·고지혈증 등 → Q3 해당 아님
-    - 위/대장 용종 → Q3 해당 아님
-    - 위 KCD 코드 범위 외 모든 질환 → Q3 배정 절대 불가
-
-[면제] 통원횟수 7회 미만인 경우 / 30일 미만 단순 투약 / 중대질병 KCD 코드 외 모든 질환
-[약 변경 면제] 3개월 이전부터 동일 약 지속 복용(변경 없음) → 면제 / 동일 약 용량만 감소 → 면제"""
-        step4_surgery_text = (
-            "\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "[4단계: Q2 수술 인정 목록 — 반드시 is_surgery=true]\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "간편심사 Q2는 입원 또는 수술만 해당. 아래 수술 판단 기준을 적용하세요.\n\n"
-            "- O84/AO84 제왕절개 → ★반드시 수술\n"
-            "- K63.5/AK635 결장용종 → 대장내시경 용종절제술 = 수술\n"
-            "- K08.1/AK081 발치 → 발치술 = 수술\n"
-            "- H25/AH25 백내장 수술 (진료비 50만원 이상)\n"
-            "- D25/AD25 자궁근종 절제, N83/AN83 난소낭종 제거 → 수술\n"
-            "- M72.66/AM7266 괴사성근막염 → 광범위절제술 = 수술 (critical)\n"
-            "- 병명/진료내역에 절제·절개·봉합·이식·성형·제거·적출 포함 → 수술\n"
-            "- 입원 동반 + 외과/흉부외과/성형외과/산부인과 → 수술 가능성 높음\n"
-            "★ 7일 이상 치료, 30일 이상 투약은 간편심사 Q2 해당 없음 (건강체 Q3 기준). Q2에 배정 금지."
-        )
-        step5_q4_exempt_text = (
-            "\n▶ 간편심사 Q2 면제 기준:\n"
-            "  - 입원 없음 AND 수술 없음 → Q2 배정 절대 불가 (단순 통원은 Q2 해당 없음)\n"
-            "  - 7일 이상 치료·30일 이상 투약 만으로는 Q2 해당 없음 (건강체 Q3 기준임)"
-        )
-        json_duty_q_values = "Q1 또는 Q2 또는 Q3 (Q4/Q5는 절대 사용 금지)"
-        json_hit_fields = (
-            '  "simple_q1_hit": true또는false, "simple_q1_reason": "사유",\n'
-            '  "simple_q2_hit": true또는false, "simple_q2_reason": "입원 또는 수술 상세",\n'
-            '  "simple_q3_hit": true또는false, "simple_q3_disease": "6대질병명 또는 null",'
-        )
-        step5_q3_health_text = ""
-        q3_diabetes_note = "(간편심사 해당 없음)"
 
     system_prompt = f"""당신은 보험 언더라이팅 전문 AI입니다.
 건강보험심사평가원(건강e음) 진료 데이터를 분석하여 보험 청약 시 알릴의무(고지의무) 해당 항목을 정확히 판단합니다.
@@ -617,9 +547,7 @@ Q3. 최근 5년({d_5y} 이후) — 태그 [IN_5Y] 항목만: 아래 중대질병
   "total_flagged": 숫자,
   "health_verdict": "가능 또는 조건부 또는 불가",
   "health_reason": "판단 이유 한 줄",
-  "simple_verdict": "가능 또는 조건부 또는 불가",
-  "simple_reason": "판단 이유 한 줄",
-  "recommend": "건강체 진행 또는 간편심사 전환 권장 또는 인수 불가 가능성",
+  "recommend": "건강체 진행 가능 또는 인수 불가 가능성",
   "summary": "설계사를 위한 핵심 요약 2줄"
 }}
 
@@ -903,8 +831,8 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
     # ── 전체 병력 요약 ─────────────────────────────────────────
     all_disease_summary = _build_all_disease_summary(disease_stats)
 
-    # ── 메리츠화재 간편보험 평가 ─────────────────────────────────
-    meritz_easy_result = evaluate_meritz_easy(disease_stats, today)
+    # SURIT-BUG-008: 메리츠 간편보험 평가 제거. main.py 호환을 위해 빈 dict 반환.
+    meritz_easy_result: dict = {}
 
     return {
         "ai_result":               ai_result,

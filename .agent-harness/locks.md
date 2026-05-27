@@ -8,6 +8,40 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 ## Released
 
+- `backend/filters.py` - Codex - SURIT-BUG-008-FIX verification/publish - 2026-05-27 released
+- `backend/pipeline/ai_judgment.py` - Codex - SURIT-BUG-008-FIX verification/publish - 2026-05-27 released
+- `backend/analyzer.py` - Codex - SURIT-BUG-008-FIX verification/publish - 2026-05-27 released
+- `backend/meritz_easy_rules.py` - Codex - SURIT-BUG-008-FIX placeholder removal - 2026-05-27 released
+- `backend/tests/test_meritz_easy_rules.py` - Codex - SURIT-BUG-008-FIX placeholder removal - 2026-05-27 released
+- `src/pages/Disclosure.tsx` - Codex - SURIT-BUG-008-FIX verification/publish - 2026-05-27 released
+- `.agent-harness/handoff.md` - Codex - SURIT-BUG-008-FIX handoff update - 2026-05-27 released
+- `.agent-harness/locks.md` - Codex - SURIT-BUG-008-FIX lock release - 2026-05-27 released
+
+- `backend/filters.py` — Claude (Cowork) · SURIT-BUG-008-FIX · 2026-05-27 해제
+
+- `backend/pipeline/ai_judgment.py` - Codex - SURIT-BUG-008 verification stopped on filters.py parse error - 2026-05-27 released
+- `backend/analyzer.py` - Codex - SURIT-BUG-008 verification stopped on filters.py parse error - 2026-05-27 released
+- `backend/filters.py` - Codex - SURIT-BUG-008 verification stopped on filters.py parse error - 2026-05-27 released
+- `backend/meritz_easy_rules.py` - Codex - SURIT-BUG-008 verification stopped on filters.py parse error - 2026-05-27 released
+- `backend/pipeline/result_builder.py` - Codex - SURIT-BUG-008 verification stopped on filters.py parse error - 2026-05-27 released
+- `backend/pipeline/helpers.py` - Codex - SURIT-BUG-008 verification stopped on filters.py parse error - 2026-05-27 released
+- `backend/keywords.json` - Codex - SURIT-BUG-008 verification stopped on filters.py parse error - 2026-05-27 released
+- `backend/tests/` - Codex - SURIT-BUG-008 verification stopped on filters.py parse error - 2026-05-27 released
+- `src/pages/Disclosure.tsx` - Codex - SURIT-BUG-008 verification stopped on filters.py parse error - 2026-05-27 released
+- `.agent-harness/handoff.md` - Codex - SURIT-BUG-008 handoff update - 2026-05-27 released
+- `.agent-harness/locks.md` - Codex - SURIT-BUG-008 lock release - 2026-05-27 released
+
+- `.agent-harness/tasks/SURIT-BUG-008-remove-meritz-easy.md` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제
+- `backend/pipeline/ai_judgment.py` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제
+- `backend/analyzer.py` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제
+- `backend/filters.py` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제
+- `backend/meritz_easy_rules.py` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제
+- `backend/pipeline/result_builder.py` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제
+- `backend/keywords.json` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제
+- `backend/pipeline/helpers.py` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제 (SIMPLE_Q3* / is_simple_q3_allowed 제거 — tests 잠금에 포함됐어야 하나 진단 단계에서 확장 필요성 파악)
+- `src/pages/Disclosure.tsx` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제
+- `backend/tests/` — Claude (Cowork) · SURIT-BUG-008 · 2026-05-27 해제
+
 - `src/pages/Disclosure.tsx` - Codex - SURIT-BUG-007 verification/publish - 2026-05-26 released
 - `.agent-harness/handoff.md` - Codex - SURIT-BUG-007 handoff update - 2026-05-26 released
 - `.agent-harness/locks.md` - Codex - SURIT-BUG-007 lock release - 2026-05-26 released

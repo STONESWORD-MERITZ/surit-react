@@ -18,7 +18,7 @@ from analyzer import (
 )
 
 HEALTH = "건강체/표준체 (일반심사)"
-SIMPLE = "간편심사"
+# SURIT-BUG-008: 간편심사 제거 — SIMPLE 상수와 관련 테스트 삭제.
 
 
 def test_build_system_prompt_health():
@@ -29,16 +29,6 @@ def test_build_system_prompt_health():
     assert "건강체/표준체 알릴의무 4문항" in p
     assert "flagged_items" in p
     assert "2026-05-25" in p
-
-
-def test_build_system_prompt_simple_differs():
-    """간편심사 프롬프트는 건강체와 다르며 Q4/Q5 사용 금지 문구를 쓴다."""
-    args = ("2026-05-25", "2026-02-24", "2025-05-25", "2021-05-25", "2016-05-25")
-    p_simple = _build_system_prompt(SIMPLE, *args)
-    p_health = _build_system_prompt(HEALTH, *args)
-    assert "간편심사" in p_simple
-    assert "Q4/Q5는 절대 사용 금지" in p_simple
-    assert p_simple != p_health
 
 
 def test_build_drug_change_text_empty():

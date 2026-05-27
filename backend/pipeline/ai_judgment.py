@@ -147,13 +147,12 @@ def _merge_ai_results(parts: list[dict]) -> dict:
         "drug_change_reason": "",
         "total_flagged": 0,
     }
+    # SURIT-BUG-008: 간편심사 제거 — simple_* 키 제외.
     hit_bool_keys = [
         "q1_hit", "q2_hit", "q3_hit", "q4_hit",
-        "simple_q1_hit", "simple_q2_hit", "simple_q3_hit",
     ]
     reason_join_keys = [
         "q1_reason", "q2_reason", "q3_reason", "q4_reason",
-        "simple_q1_reason", "simple_q2_reason",
     ]
     for p in parts:
         merged["flagged_items"].extend(p.get("flagged_items") or [])
@@ -171,21 +170,11 @@ def _merge_ai_results(parts: list[dict]) -> dict:
     dcr = [x.get("drug_change_reason") for x in parts if x.get("drug_change_reason")]
     merged["drug_change_reason"] = "; ".join(dcr) if dcr else ""
 
-    sq3 = None
-    for x in parts:
-        v = x.get("simple_q3_disease")
-        if v:
-            sq3 = v
-            break
-    merged["simple_q3_disease"] = sq3
+    # SURIT-BUG-008: 간편심사 제거 — simple_* 병합 로직 삭제.
 
     merged["health_verdict"] = _worst_insurance_verdict(*(x.get("health_verdict") or "" for x in parts))
     hr = [x.get("health_reason") for x in parts if x.get("health_reason")]
     merged["health_reason"] = "; ".join(hr) if hr else ""
-
-    merged["simple_verdict"] = _worst_insurance_verdict(*(x.get("simple_verdict") or "" for x in parts))
-    sr = [x.get("simple_reason") for x in parts if x.get("simple_reason")]
-    merged["simple_reason"] = "; ".join(sr) if sr else ""
 
     rec = [x.get("recommend") for x in parts if x.get("recommend")]
     merged["recommend"] = "; ".join(rec) if rec else ""

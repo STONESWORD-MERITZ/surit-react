@@ -24,9 +24,7 @@ surg_keywords          = _KW["surg_keywords"]
 surg_negative_keywords = _KW["surg_negative_keywords"]
 test_keywords          = _KW["test_keywords"]
 nhis_surg_keywords     = _KW["nhis_surg_keywords"]
-SIMPLE_Q3_CODES            = tuple(_KW["simple_q3_codes"])
 HEALTH_Q5_CODES            = tuple(_KW["health_q5_codes"])
-SIMPLE_Q3_ALLOWED_PREFIXES = tuple(_KW["simple_q3_allowed_prefixes"])
 _FTYPE_KW                  = _KW["detect_file_type_keywords"]
 SURGERY_COST_KEYWORDS      = _KW["surgery_cost_keywords"]
 PROCEDURE_KEYWORDS         = _KW["procedure_keywords"]
@@ -452,19 +450,6 @@ def _max_presc(med_dict, since_dt):
         else:
             values.append(int(v or 0))
     return max(values) if values else 0
-
-
-def is_simple_q3_allowed(code: str) -> bool:
-    if code is None:
-        return False
-    code = str(code).strip()
-    if not code:
-        return False
-    code = code.upper()
-    for prefix in SIMPLE_Q3_ALLOWED_PREFIXES:
-        if code.startswith(prefix):
-            return True
-    return False
 
 
 def _worst_insurance_verdict(*vals: str) -> str:
