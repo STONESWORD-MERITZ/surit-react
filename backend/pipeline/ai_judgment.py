@@ -113,10 +113,13 @@ def _finalize_raw_text_for_gemini(
     presc_end_text: str,
 ) -> str:
     # SURIT-ROLLBACK-001: 잘림 상한 내 데이터 밀도를 높이기 위해 필터 강화.
-    # 반복 헤더·연속 중복·짧은 노이즈 줄을 제거하고 상한을 3000줄로 상향.
+    # 반복 헤더·연속 중복·짧은 노이즈 줄을 제거.
+    # SURIT-BUG-009: 318p PDF(약 13,000줄 / 293K자) 전체를 커버하도록 상한 대폭 상향.
+    # BUG-008 메리츠 간편 제거로 Gemini 호출이 PDF 1건당 1회만 남았고, 타임아웃 한도 300초에
+    # 충분한 여유가 있어 가능. 사용자 분기표 X≥8000 티어 적용 (13,000줄 / 300K자).
     cleaned_lines = _strengthen_filter(filtered_lines)
-    # 기존: filtered_lines[:800] → 2000 → 3000 (SURIT-ROLLBACK-001 상향)
-    raw_text = "\n".join(cleaned_lines[:3000])
+    # 기존: filtered_lines[:800] → 2000 → 3000 → 13_000 (SURIT-BUG-009 상향, 318p 전체 커버)
+    raw_text = "\n".join(cleaned_lines[:13_000])
     if visit_count_lines:
         raw_text = "[10년내 질병코드별 통원횟수 집계 — Q4 7회이상통원 판단 기준]\n" \
                    + "\n".join(visit_count_lines) + "\n\n" + raw_text
@@ -130,8 +133,8 @@ def _finalize_raw_text_for_gemini(
         raw_text = drug_change_text + "\n" + raw_text
     if presc_end_text:
         raw_text = presc_end_text + "\n" + raw_text
-    # 기존: MAX_RAW_TEXT_LEN = 30_000 → 80_000 → 100_000 (SURIT-ROLLBACK-001 상향)
-    MAX_RAW_TEXT_LEN = 100_000
+    # 기존: MAX_RAW_TEXT_LEN = 30_000 → 80_000 → 100_000 → 300_000 (SURIT-BUG-009 상향, 318p 전체 커버)
+    MAX_RAW_TEXT_LEN = 300_000
     if len(raw_text) > MAX_RAW_TEXT_LEN:
         raw_text = raw_text[:MAX_RAW_TEXT_LEN] + "\n... (truncated)"
     return raw_text

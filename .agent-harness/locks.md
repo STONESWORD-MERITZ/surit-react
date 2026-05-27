@@ -8,6 +8,24 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 ## Released
 
+- `backend/pipeline/ai_judgment.py` - Codex - SURIT-BUG-009-FIX verification/publish - 2026-05-27 released
+- `backend/analyzer.py` - Codex - SURIT-BUG-009-FIX verification/publish - 2026-05-27 released
+- `.agent-harness/handoff.md` - Codex - SURIT-BUG-009-FIX handoff update - 2026-05-27 released
+- `.agent-harness/locks.md` - Codex - SURIT-BUG-009-FIX lock release - 2026-05-27 released
+
+- `backend/pipeline/ai_judgment.py` — Claude (Cowork) · SURIT-BUG-009-FIX · 2026-05-27 해제
+- `backend/analyzer.py` — Claude (Cowork) · SURIT-BUG-009-FIX · 2026-05-27 해제
+
+- `backend/pipeline/ai_judgment.py` - Codex - SURIT-BUG-009 verification stopped on ast.parse error - 2026-05-27 released
+- `backend/analyzer.py` - Codex - SURIT-BUG-009 verification stopped on ast.parse error - 2026-05-27 released
+- `.agent-harness/handoff.md` - Codex - SURIT-BUG-009 handoff update - 2026-05-27 released
+- `.agent-harness/locks.md` - Codex - SURIT-BUG-009 lock release - 2026-05-27 released
+
+- `.agent-harness/tasks/SURIT-BUG-009-limit-up.md` — Claude (Cowork) · SURIT-BUG-009 · 2026-05-27 해제
+- `backend/pipeline/ai_judgment.py` — Claude (Cowork) · SURIT-BUG-009 · 2026-05-27 해제
+- `backend/analyzer.py` — Claude (Cowork) · SURIT-BUG-009 · 2026-05-27 해제
+- `backend/tests/` — Claude (Cowork) · SURIT-BUG-009 · 2026-05-27 해제 (미수정 — 기존 회귀 테스트로 검증)
+
 - `backend/filters.py` - Codex - SURIT-BUG-008-FIX verification/publish - 2026-05-27 released
 - `backend/pipeline/ai_judgment.py` - Codex - SURIT-BUG-008-FIX verification/publish - 2026-05-27 released
 - `backend/analyzer.py` - Codex - SURIT-BUG-008-FIX verification/publish - 2026-05-27 released

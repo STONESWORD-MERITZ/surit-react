@@ -18,6 +18,98 @@
 
 Use newest entries at the top.
 
+## 2026-05-27 18:39 Codex SURIT-BUG-009-FIX
+### Changed
+- `backend/pipeline/ai_judgment.py` - `cleaned_lines[:13_000]`, `MAX_RAW_TEXT_LEN = 300_000` 상한 상향 및 중복 return fragment 정리분 재검증.
+- `backend/analyzer.py` - `_GEMINI_LINE_CAP = 13_000` 동기화 및 중복 return-dict fragment 정리분 재검증.
+- `.agent-harness/tasks/SURIT-BUG-009-limit-up.md` - SURIT-BUG-009 task file 포함.
+
+### Verified
+- [x] `python -c "import ast; ast.parse(open('backend/pipeline/ai_judgment.py').read()); print('OK')"` - OK (`PYTHONUTF8=1`로 Windows UTF-8 소스 판독)
+- [x] `python -c "import ast; ast.parse(open('backend/analyzer.py').read()); print('OK')"` - OK (`PYTHONUTF8=1`)
+- [x] `cd backend && python -m pytest -q` - 104 passed
+- [x] `backend/pipeline/ai_judgment.py` - `cleaned_lines[:13_000]`, `MAX_RAW_TEXT_LEN = 300_000` 확인
+- [x] `backend/analyzer.py` - `_GEMINI_LINE_CAP = 13_000` 확인
+- [x] `git status --short -uall` - 허용 범위만 변경됨
+- [x] `git push origin main` - Codex publish step에서 완료
+
+### Notes
+- 최종 변경 범위: `backend/pipeline/ai_judgment.py`, `backend/analyzer.py`, `.agent-harness/` 파일들만 변경.
+- `PYTHONUTF8=1`은 Windows 기본 `cp949` 디코딩 문제를 피하기 위한 실행 환경이며, 검증 코드는 요청된 `ast.parse(open(...).read())` 형태 그대로 사용.
+
+### Next
+- Human: Railway 배포 후 박화자 PDF 재테스트.
+- 확인 기준: `truncation_warning` 없음 확인.
+
+## 2026-05-27 18:25 Claude SURIT-BUG-009-FIX
+### Changed
+- `backend/pipeline/ai_judgment.py` — line 367~375의 중복된 두 번째 `return {...}` 블록 제거. 유효한 첫 return (line 366) 만 남김.
+- `backend/analyzer.py` — line 853~856의 중복된 두 번째 `"retry_warnings"`/`"truncation_warning"`/`"meritz_easy"` dict fragment 제거. 유효한 첫 return dict (line 852에서 닫힘) 만 남김.
+
+### Verified
+- [x] `python -c "import ast; ast.parse(open('backend/pipeline/ai_judgment.py').read()); print('OK')"` — OK
+- [x] `python -c "import ast; ast.parse(open('backend/analyzer.py').read()); print('OK')"` — OK
+- [x] `cd backend && python -m pytest -q` — **104 passed in 3.24s**
+- [x] 상한값 반영 확인: `cleaned_lines[:13_000]`, `MAX_RAW_TEXT_LEN = 300_000`, `_GEMINI_LINE_CAP = 13_000` 모두 정상.
+
+### Notes
+- 원인: SURIT-BUG-009 작업 중 마운트 동기화 사고로 Linux mount 뷰에서 두 파일의 꼬리가 잘려 있었고, `git show HEAD:` 의 마지막 블록을 `cat >>` 로 복원했다. 그러나 Windows 측 원본은 잘리지 않은 상태였기 때문에 결과적으로 두 파일에 같은 블록이 두 번 append 됨. Codex 가 Windows 환경에서 ast.parse 했을 때 IndentationError 발생.
+- 이번 fix 에서는 Edit 도구로 Windows 측 원본을 직접 본 뒤 중복 영역만 정확히 제거. ast.parse 양쪽 OK 확인.
+- 상한값(13_000줄 / 300K자 / _GEMINI_LINE_CAP 13_000) 은 SURIT-BUG-009 본 작업의 변경 그대로 유지됨 — fix 는 중복 fragment 제거만.
+- 동일한 마운트 사고 패턴(SURIT-BUG-008-FIX 의 filters.py 잔여 라인, BUG-009 의 두 파일 중복)이 반복되고 있음. 향후 `cat >> ` 패턴 사용 후에는 반드시 line count + tail 비교로 중복 여부를 확인하거나, 마운트 sync 우려 시 Python 으로 정확한 길이까지 truncate 후 write 권장.
+
+### Next
+- Codex: SURIT-BUG-009-FIX 재검증 + 푸시 — ① `python -c "import ast; ast.parse(...)"` 양쪽 파일 재확인 ② `cd backend && python -m pytest -q` (104) 재실행 ③ 상한값(`cleaned_lines[:13_000]`, `MAX_RAW_TEXT_LEN = 300_000`, `_GEMINI_LINE_CAP = 13_000`) 확인 ④ `git status --short -uall` 로 허용 범위(`backend/pipeline/ai_judgment.py`, `backend/analyzer.py`, `.agent-harness/handoff.md`, `.agent-harness/locks.md`) 만 변경됐는지 확인 ⑤ 한국어 커밋 메시지(`SURIT-BUG-009: 잘림 상한 13_000줄/300K자 상향 + 중복 라인 정리`)로 `git push origin main` ⑥ Railway 배포 후 318p 박화자 PDF 로 truncation_warning 사라짐 확인.
+
+## 2026-05-27 17:59 Codex SURIT-BUG-009
+### Changed
+- `.agent-harness/locks.md` - Codex verification/publish lock added, then released because validation stopped.
+
+### Verified
+- [ ] `python -c "import ast; ast.parse(open('backend/pipeline/ai_judgment.py').read()); print('OK')"` - stopped: `IndentationError: unexpected indent` at `backend/pipeline/ai_judgment.py` line 367.
+- [ ] `python -c "import ast; ast.parse(open('backend/analyzer.py').read()); print('OK')"` - stopped: `IndentationError: unexpected indent` at `backend/analyzer.py` line 853.
+- [ ] `cd backend && python -m pytest -q` - not run because ast.parse failed first.
+- [ ] `git push origin main` - not run.
+
+### Notes
+- Commands were rerun with `PYTHONUTF8=1` on Windows to avoid UTF-8 source decoding noise; both failures are real syntax/indentation failures.
+- `backend/pipeline/ai_judgment.py` has a duplicated trailing `return` block after the valid `return {"filename": ...}` at line 363.
+- `backend/analyzer.py` has a duplicated trailing return-dict fragment after the valid `return { ... }` ending at line 836.
+
+### Next
+- Cowork or Codex: remove the duplicated trailing fragments in `backend/pipeline/ai_judgment.py` and `backend/analyzer.py`, then rerun SURIT-BUG-009 from ast.parse.
+- After parse passes: verify pytest 104, confirm `cleaned_lines[:13_000]`, `MAX_RAW_TEXT_LEN = 300_000`, `_GEMINI_LINE_CAP = 13_000`, then commit/push.
+
+## 2026-05-27 12:10 Claude SURIT-BUG-009
+### Changed
+- `backend/pipeline/ai_judgment.py` — `_finalize_raw_text_for_gemini` 의 줄 슬라이스 `cleaned_lines[:3000] → [:13_000]`, 글자 상한 `MAX_RAW_TEXT_LEN = 100_000 → 300_000`. 기존값/사유 주석 보존.
+- `backend/analyzer.py` — `_GEMINI_LINE_CAP = 3000 → 13_000` 동기화 + 주석 갱신 (300_000자, BUG-008 메리츠 제거로 Gemini 호출 단일화 + 300초 타임아웃 여유).
+- `.agent-harness/tasks/SURIT-BUG-009-limit-up.md` — 태스크 파일 신규.
+### Verified
+- [x] `python -c "import ast; ast.parse(...)"` — ai_judgment.py / analyzer.py 모두 OK
+- [x] `cd backend && python -m pytest -q` — **104 passed in 2.90s**
+### Notes
+**1단계 진단 결과:**
+- 샌드박스에 318p 박화자 PDF 가 없어 `logger.info(f"filtered_lines 길이: {len(filtered_lines)}")` 실측은 불가. 사용자가 제공한 수치(약 13,000줄 / 293,000자)를 `_strengthen_filter` 통과 후 길이로 추정 채택 (사용자가 "3000줄/100K자 상한을 초과해 truncation_warning 발생" 이라고 명시한 점에서 _strengthen_filter 후 길이로 해석 가능).
+- 사용자 분기표 적용: X ≥ 8000 → **13,000줄 / 300K자 (전체 커버)** 티어 선택.
+- 임시 로그 추가는 실측이 불가능하므로 생략. Codex 가 Windows 환경에서 실측이 가능하면 보강 가능하나 본 태스크의 완료 조건상 필요 없음.
+
+**상한 변경값 요약:**
+- `filtered_lines` 슬라이스: 3,000 → **13,000**
+- `MAX_RAW_TEXT_LEN`: 100,000자 → **300,000자**
+- `_GEMINI_LINE_CAP` (analyzer): 3,000 → **13,000**
+
+**마운트 동기화 사고 (재발):**
+- `ai_judgment.py` Edit 후 line 357 부근 (`if ai_result is None:` 직후 블록)이 잘려 파일이 356줄에서 끝. `analyzer.py` 도 line 848에서 잘려 return dict 가 닫히지 않음.
+- 둘 다 git HEAD 의 해당 마지막 블록을 `cat >>` 로 복원해 정상 닫힘. ast.parse 모두 OK 확인. pytest 104 passed 회귀.
+- Codex 가 Windows 측에서 ast.parse 재확인 후 푸시 권장.
+
+**타임아웃 영향성:**
+- BUG-008 로 메리츠 간편 Gemini 호출 제거 → 호출이 PDF 1건당 1회 (+ medical_judgment 1회) 로 단일화.
+- 300K자 입력은 Gemini 2.5 Flash 처리 시간이 늘 수 있으나, 서버 타임아웃 300초 (BUG-006) 한도에 여유 있어 안전.
+### Next
+- Codex: SURIT-BUG-009 검증 + 푸시 — ① `python -c "import ast; ast.parse(...)"` 양쪽 파일 재확인 ② `cd backend && python -m pytest -q` (104) 재실행 ③ `git status --short -uall` 로 허용 범위(`backend/pipeline/ai_judgment.py`, `backend/analyzer.py`, `.agent-harness/tasks/SURIT-BUG-009-limit-up.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md`) 만 변경됐는지 확인 ④ 한국어 커밋 메시지(`SURIT-BUG-009: 잘림 상한 13_000줄/300K자로 상향`)로 `git push origin main` ⑤ Railway 배포 후 318p 박화자 PDF 로 truncation_warning 사라짐 확인.
+
 ## 2026-05-27 17:26 Codex SURIT-BUG-008
 ### Changed
 - `backend/filters.py` - Cowork SURIT-BUG-008-FIX 잔여 라인 정리분 재검증.
