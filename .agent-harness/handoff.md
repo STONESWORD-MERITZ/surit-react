@@ -18,6 +18,61 @@
 
 Use newest entries at the top.
 
+## 2026-05-27 19:20 Codex SURIT-VERIFY-001
+### Changed
+- `backend/pipeline/ai_judgment.py` - Gemini 판단 호출 config 안정화 재검증.
+- `backend/tests/test_ai_judgment_stability.py` - stability 회귀 테스트 5건 추가분 검증.
+- `.agent-harness/tasks/SURIT-VERIFY-001-consistency-check.md` - task file 포함.
+
+### Verified
+- [x] `cd backend && python -m pytest -q` - 109 passed
+- [x] `backend/pipeline/ai_judgment.py` - 두 `GenerateContentConfig`에 `top_p=1.0`, `top_k=1`, `seed=42`, `response_mime_type="application/json"` 확인
+- [x] `backend/pipeline/ai_judgment.py` - SDK 미지원 `TypeError` fallback에서 `temperature=0` 유지 확인
+- [x] `MEDICAL_JUDGMENT_SYSTEM_PROMPT` - 동일 입력/동일 출력 결정성 가드 헤더 확인
+- [x] `python -c "import ast; ast.parse(open('backend/pipeline/ai_judgment.py').read()); print('OK')"` - OK (`PYTHONUTF8=1`)
+- [x] `git status --short -uall` - 허용 범위만 변경됨
+- [x] `git push origin main` - Codex publish step에서 완료
+
+### Notes
+- 실제 Gemini API 2회 동일성 실측은 로컬 테스트 범위 밖이며, 배포 후 동일 PDF로 Human 확인 필요.
+
+### Next
+- Human: Railway 배포 후 동일 PDF 2회 분석.
+- 확인 기준: 결과 동일성 실측 확인.
+
+## 2026-05-27 19:10 Claude SURIT-VERIFY-001
+### Changed
+- `backend/pipeline/ai_judgment.py`
+  - `MEDICAL_JUDGMENT_SYSTEM_PROMPT` 재작성: "동일 입력 → 동일 출력" 결정성 가드 헤더 추가, 추가검사 판단을 "365일 이내 2회 이상 OR 2종 이상 + 이상소견 reason 포함 OR 14일 이상 간격 동일검사 2회" 같은 수치/조건 기반 규칙으로 치환, 치료 종결 판단을 "만성 KCD 코드 화이트리스트 + 처방종료일 30일 컷오프 + 보수적 false fallback" 으로 명시화.
+  - 양쪽 `GenerateContentConfig` 에 결정성 보조 파라미터 추가: `top_p=1.0`, `top_k=1`, `seed=42`, `response_mime_type="application/json"`. SDK 미지원 시 `TypeError` 잡아 `temperature=0` 만으로 fallback.
+- `backend/tests/test_ai_judgment_stability.py` — 신규. 5건 회귀 잠금: temperature=0 양쪽 등장, top_k=1/seed=42/top_p=1.0/response_mime_type 양쪽 등장, 프롬프트에 "일 수 있다"/"재발 가능성"/"재방문 가능성" 같은 추측 표현 비포함, 결정성 가드 문구 존재, fallback 도 temperature=0 보존.
+- `.agent-harness/tasks/SURIT-VERIFY-001-consistency-check.md` — 태스크 파일 신규.
+### Verified
+- [x] `python -c "import ast; ast.parse(...)"` — OK
+- [x] `cd backend && python -m pytest -q` — **109 passed in 3.09s** (104 기준선 + 신규 5건 안정화 회귀)
+### Notes
+**1단계 진단 결과:**
+- `_call_medical_judgment` 와 `analyze_single_pdf` 두 Gemini 호출 모두 **이미 `temperature=0` 적용돼 있었음** (라인 240, 306).
+- `top_p`, `top_k`, `seed`, `response_mime_type` 는 미설정 — `temperature=0` 만으로도 그리디 디코딩이 되긴 하나 SDK/모델 패치에 따른 미세한 비결정성 가능성 존재.
+- 프롬프트 모호 표현: `MEDICAL_JUDGMENT_SYSTEM_PROMPT` 의 "재발 가능성"(line 101), "재방문 가능성"(line 104), "만성/급성 구분"(line 104) 같은 주관적 결정 기준.
+- 시간 표현 자체는 이미 "1년 이내" "3개월 이내" 처럼 today_str 기반 계산 — 모델 처리. analyzer._build_system_prompt 가 만드는 `flagged_items` 프롬프트도 모호 표현 가능하나 본 태스크 범위 외 (`analyzer.py` 잠금 미포함). 후속 태스크 권장.
+
+**2단계 안정화 적용 요약:**
+- 결정성 가드 문구 추가: "동일 입력 → 동일 출력. 추측·확률 표현 금지. 입력 명시 사실만 근거. 미래 사건 추정은 false."
+- 추가검사 판단을 수치 기반으로 치환: "365일 이내 2회 이상 OR 2종 이상" + "이상소견 키워드 매칭" + "14일 이상 간격 동일검사 반복".
+- 치료 종결 판단을 만성 KCD 화이트리스트로 명시: E10~14 / I10~15 / J45 / N18 / K70~77 / F20~29 / F31~33 / M05~14. 30일 처방종료 컷오프로 결정성 부여.
+- 어느 규칙으로도 결정 불가 → false (보수적 — 추측 금지).
+
+**3단계 검증 결과:**
+- pytest 109 passed (104 → 109, 신규 회귀 5건).
+- 실제 Gemini API 호출은 샌드박스에서 불가능 (네트워크/키 없음). "동일 입력 2회 호출 시 동일 출력" 의 실측은 **코드 정적 검증(설정값 회귀)** 으로 대체. Codex 가 Windows + 실제 API 키로 실측 가능하면 추가 검증 권장.
+
+**마운트 동기화 사고 (재발):**
+- `pipeline/ai_judgment.py` Edit 후 mount 측 line 346 부근 `temperat...` 으로 잘림. Windows 원본 Read 로 정확한 tail(line 347~405) 확인 후 Python heredoc 으로 mount 에 직접 write 해 복원. 이후 한 차례 null-byte tail truncation 재발 — valid 영역 절단 후 재write 로 정리. ast.parse 양쪽 OK 확인.
+
+### Next
+- Codex: SURIT-VERIFY-001 검증 + 푸시 — ① `python -c "import ast; ast.parse(...)"` 확인 ② `cd backend && python -m pytest -q` (109) 재실행 ③ `git status --short -uall` 로 허용 범위(`backend/pipeline/ai_judgment.py`, `backend/tests/test_ai_judgment_stability.py`, `.agent-harness/tasks/SURIT-VERIFY-001-consistency-check.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md`) 확인 ④ 한국어 커밋 메시지(`SURIT-VERIFY-001: AI 판단 프롬프트 안정화 (temperature=0/seed/JSON mime)`)로 `git push origin main` ⑤ Railway 배포 후 동일 PDF 2회 분석 시 결과 동일성 실측 권장.
+
 ## 2026-05-27 18:39 Codex SURIT-BUG-009-FIX
 ### Changed
 - `backend/pipeline/ai_judgment.py` - `cleaned_lines[:13_000]`, `MAX_RAW_TEXT_LEN = 300_000` 상한 상향 및 중복 return fragment 정리분 재검증.

@@ -8,6 +8,15 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 ## Released
 
+- `backend/pipeline/ai_judgment.py` - Codex - SURIT-VERIFY-001 verification/publish - 2026-05-27 released
+- `backend/tests/` - Codex - SURIT-VERIFY-001 verification/publish - 2026-05-27 released
+- `.agent-harness/handoff.md` - Codex - SURIT-VERIFY-001 handoff update - 2026-05-27 released
+- `.agent-harness/locks.md` - Codex - SURIT-VERIFY-001 lock release - 2026-05-27 released
+
+- `.agent-harness/tasks/SURIT-VERIFY-001-consistency-check.md` — Claude (Cowork) · SURIT-VERIFY-001 · 2026-05-27 해제
+- `backend/pipeline/ai_judgment.py` — Claude (Cowork) · SURIT-VERIFY-001 · 2026-05-27 해제
+- `backend/tests/` — Claude (Cowork) · SURIT-VERIFY-001 · 2026-05-27 해제
+
 - `backend/pipeline/ai_judgment.py` - Codex - SURIT-BUG-009-FIX verification/publish - 2026-05-27 released
 - `backend/analyzer.py` - Codex - SURIT-BUG-009-FIX verification/publish - 2026-05-27 released
 - `.agent-harness/handoff.md` - Codex - SURIT-BUG-009-FIX handoff update - 2026-05-27 released
