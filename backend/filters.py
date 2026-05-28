@@ -30,6 +30,9 @@ def _load_kw():
 
 _KW = _load_kw()
 HEALTH_Q5_CODES            = tuple(_KW["health_q5_codes"])
+# SURIT-009: 새 코드 풀 — Q3_easy(6대) / Q4_health(10대)
+EASY_Q3_6CODES             = tuple(_KW.get("easy_q3_6codes", []))
+HEALTH_Q4_10CODES          = tuple(_KW.get("health_q4_10codes", []))
 # 건강검진·선별검사·예방접종 등 비질병 KCD 코드 (질병으로 집계하지 않음)
 NON_DISEASE_CODE_PREFIXES  = tuple(_KW.get("non_disease_code_prefixes", []))
 
@@ -123,6 +126,8 @@ def _is_valid_disease(diag_code: str, name: str) -> bool:
 
 # ── 상수 ───────────────────────────────────────────────
 PRODUCT_HEALTH = "건강체/표준체 (일반심사)"
+# SURIT-009: 간편심사 product_type 복구 (BUG-008 에서 제거됐던 것을 재도입).
+PRODUCT_EASY = "간편심사 (유병자 3-5-5 기준)"
 
 # 건강체 Q1 ⑤ — 상시복용 약물 카테고리 (성분명 일부 매칭, 대소문자 무시)
 CHRONIC_DRUG_CATEGORIES: dict[str, list[str]] = {
@@ -233,15 +238,20 @@ def build_code_based_items(
         drug_change_groups: 3개월 내 약 변경 감지된 group_key 집합.
                             None 이면 disease_stats[g].get("drug_change_in_3m") 사용.
     """
-    # SURIT-BUG-008: 간편심사 분기 제거. PRODUCT_HEALTH 또는 미지정 모두
-    # 건강체 룰로 처리한다. drug_change_groups 는 _build_health 가 직접
-    # disease_stats[g]["drug_change_in_3m"] 를 참조하므로 본 함수에서는 사용 안 함.
-    _ = drug_change_groups  # 시그니처 호환 유지
-    if product_type and product_type != PRODUCT_HEALTH:
-        # 알 수 없는 product_type 도 건강체로 fallback (UI/main.py 가
-        # 표준 외 값을 보낼 가능성 차단).
-        pass
-    return _build_health(disease_stats, reference_date)
+    # SURIT-009: 신구조 — _split_buckets + Q1~Q4 함수 통합.
+    # product_type=건강체 → Q1 + Q2_health + Q3_health + Q4_health
+    # product_type=간편   → Q1 + Q2_easy   + Q3_easy
+    # 기존 _build_health 는 deprecation (호환용 — 테스트가 직접 호출).
+    items: list[dict] = []
+    items.extend(_build_q1_items(disease_stats, reference_date, drug_change_groups))
+    if product_type == PRODUCT_EASY:
+        items.extend(_build_q2_easy_items(disease_stats, reference_date))
+        items.extend(_build_q3_easy_items(disease_stats, reference_date))
+    else:
+        items.extend(_build_q2_health_items(disease_stats, reference_date))
+        items.extend(_build_q3_health_items(disease_stats, reference_date))
+        items.extend(_build_q4_health_items(disease_stats, reference_date))
+    return items
 
 
 # ── 건강체 룰 ──────────────────────────────────────────
@@ -425,4 +435,340 @@ def _build_health(
                 evidence={"code": dc, "matched_prefix": "HEALTH_Q5_CODES"},
             ))
 
+    return items
+
+# ──────────────────────────────────────────────────────────
+# SURIT-009: 신구조 Q1~Q4 함수 (사전 버킷 분리 + 결정론 룰)
+# ──────────────────────────────────────────────────────────
+
+
+def _split_buckets(disease_stats: dict[str, dict[str, Any]], reference_date: datetime) -> dict:
+    """5종 버킷으로 disease_stats 를 사전 분리한다 (SURIT-009 1순위 필터).
+
+    bucket_3m       : 3개월이내 진단·진료(visit+입원+수술) 발생 코드
+    bucket_1y       : 1년이내 진단·진료 발생 코드
+    bucket_10y_hosp : 10년이내 입원 기록 보유 코드 (기본진료)
+    bucket_10y_surg : 10년이내 수술 기록 보유 코드 (세부진료)
+    bucket_5y_major : 5년이내 진단·진료 발생 코드 (중대질환 필터 전)
+    """
+    d3m, d1y, d5y, d10y = _cutoffs(reference_date)
+    out = {
+        "bucket_3m":        {},
+        "bucket_1y":        {},
+        "bucket_10y_hosp":  {},
+        "bucket_10y_surg":  {},
+        "bucket_5y_major":  {},
+    }
+    for gk, s in disease_stats.items():
+        all_dates = s.get("visit_dates", set()) | s.get("inpatient_dates", set()) | s.get("surgery_dates", set())
+        if _dts_in_range(all_dates, d3m):
+            out["bucket_3m"][gk] = s
+        if _dts_in_range(all_dates, d1y):
+            out["bucket_1y"][gk] = s
+        if _dts_in_range(s.get("inpatient_dates", set()), d10y):
+            out["bucket_10y_hosp"][gk] = s
+        if _dts_in_range(s.get("surgery_dates", set()), d10y):
+            out["bucket_10y_surg"][gk] = s
+        if _dts_in_range(all_dates, d5y):
+            out["bucket_5y_major"][gk] = s
+    return out
+
+
+def _build_q1_items(
+    disease_stats: dict[str, dict[str, Any]],
+    reference_date: datetime,
+    drug_change_groups: set[str] | None,
+) -> list[dict]:
+    """Q1 (건강체·간편 공통) — 3개월이내 질병확정진단·추가검사·재검사·투약변경.
+
+    SURIT-009: bucket_3m 항목 + drug_change 가 있는 disease_stats 전체.
+    drug_change 만 단독으로 발생한 항목(bucket_3m 미진입) 도 Q1 으로 잡힌다.
+    """
+    items: list[dict] = []
+    buckets = _split_buckets(disease_stats, reference_date)
+    d3m, _d1y, _d5y, _d10y = _cutoffs(reference_date)
+
+    # drug_change 만 있는 항목도 처리 대상에 포함.
+    target_keys = set(buckets["bucket_3m"].keys())
+    for gk, s in disease_stats.items():
+        has_drug_change = (
+            (drug_change_groups is not None and gk in drug_change_groups)
+            or s.get("drug_change_in_3m", False)
+        )
+        if has_drug_change:
+            target_keys.add(gk)
+
+    for gk in target_keys:
+        s = disease_stats.get(gk) or buckets["bucket_3m"].get(gk)
+        if s is None:
+            continue
+        dc = (s.get("diag_code") or "").strip().upper()
+        nm = (s.get("name") or "").strip()
+        if not _is_valid_disease(dc, nm):
+            continue
+        if not nm:
+            nm = dc
+        hp = " / ".join(_sorted_strings(s.get("hospitals", set()))[:2]) or "정보 없음"
+        fd = s.get("first_date", "2099-12-31")
+
+        inp_3m   = _dts_in_range(s.get("inpatient_dates", set()), d3m)
+        surg_3m  = _dts_in_range(s.get("surgery_dates", set()), d3m)
+        visit_3m = _visit_count_in_range(s, d3m)
+        inp_map  = s.get("_inpatient_days_map", {})
+        inp3m_days = sum(inp_map.get(d, 1) for d in inp_3m) if inp_3m else 0
+        med_pharma = s.get("med_dates_pharma_episode") or s.get("med_dates_pharma", {})
+        presc_3m   = _max_presc(med_pharma, d3m)
+        wt = _weight_for(dc)
+        sn = next(iter(_sorted_strings(s.get("surgeries", set()))), None)
+
+        ci = lambda **kw: _make_item(code=dc, disease=nm, hospital=hp,
+                                     first_diagnosis_date=fd, **kw)
+
+        # R-Q1-DIAG-3M: 3개월이내 확정진단(진단일 기준)
+        fd_dt = _parse_ymd(fd)
+        if (fd_dt and fd_dt >= d3m
+                and (visit_3m > 0 or fd_dt <= reference_date)):
+            items.append(ci(
+                q="Q1", rule_id="R-Q1-DIAG-3M",
+                reason=f"3개월이내 확정진단: {nm} ({dc})",
+                date=fd, weight=wt,
+                visit_count=visit_3m, med_days=presc_3m,
+                evidence={"first_date": fd, "code": dc},
+            ))
+
+        # R-Q1-INP-3M: 3개월이내 입원
+        if inp_3m:
+            items.append(ci(
+                q="Q1", rule_id="R-Q1-INP-3M",
+                reason=f"3개월이내 입원 ({inp3m_days}일)",
+                date=max(inp_3m), weight=wt,
+                is_inpatient=True, inpatient_days=inp3m_days,
+                inpatient_count=len(inp_3m),
+                visit_count=visit_3m, med_days=presc_3m,
+                evidence={"dates": inp_3m, "actual_days": inp3m_days},
+            ))
+
+        # R-Q1-SURG-3M: 3개월이내 수술
+        if surg_3m:
+            items.append(ci(
+                q="Q1", rule_id="R-Q1-SURG-3M",
+                reason=f"3개월이내 수술: {sn or '수술'}",
+                date=max(surg_3m), weight=wt,
+                is_surgery=True, surgery_name=sn,
+                visit_count=visit_3m, med_days=presc_3m,
+                evidence={"dates": surg_3m, "surgery": sn},
+            ))
+
+        # R-Q1-DRUG-CHANGE: 3개월이내 처방 변경
+        has_drug_change = (
+            (drug_change_groups is not None and gk in drug_change_groups)
+            or s.get("drug_change_in_3m", False)
+        )
+        if has_drug_change:
+            items.append(ci(
+                q="Q1", rule_id="R-Q1-DRUG-CHANGE",
+                reason="3개월이내 처방 변경 — 약 종류·용량 변경",
+                date=s.get("latest_date", "") or fd, weight="high",
+                med_days=presc_3m, visit_count=visit_3m,
+                evidence={"drug_change_in_3m": True},
+            ))
+
+    return items
+
+
+def _build_q2_health_items(
+    disease_stats: dict[str, dict[str, Any]],
+    reference_date: datetime,
+) -> list[dict]:
+    """Q2 건강체 — 1년이내 질병확정진단 전체 (Gemini 의심 소견 부착은 4단계)."""
+    items: list[dict] = []
+    buckets = _split_buckets(disease_stats, reference_date)
+    _d3m, d1y, _d5y, _d10y = _cutoffs(reference_date)
+
+    for gk, s in buckets["bucket_1y"].items():
+        dc = (s.get("diag_code") or "").strip().upper()
+        nm = (s.get("name") or "").strip()
+        if not _is_valid_disease(dc, nm):
+            continue
+        if not nm:
+            nm = dc
+        hp = " / ".join(_sorted_strings(s.get("hospitals", set()))[:2]) or "정보 없음"
+        fd = s.get("first_date", "2099-12-31")
+        fd_dt = _parse_ymd(fd)
+        if not (fd_dt and fd_dt >= d1y):
+            # bucket_1y 에 들어왔어도 first_date 가 1년 이전이면 Q2 미해당 (재진).
+            continue
+        visit_1y = _visit_count_in_range(s, d1y)
+        wt = _weight_for(dc)
+        items.append(_make_item(
+            q="Q2", code=dc, disease=nm, hospital=hp,
+            first_diagnosis_date=fd, reason=f"1년이내 확정진단: {nm} ({dc})",
+            date=fd, weight=wt,
+            visit_count=visit_1y,
+            rule_id="R-H-Q2-DIAG-1Y",
+            evidence={"first_date": fd, "code": dc, "needs_gemini_finding": True},
+        ))
+    return items
+
+
+def _build_q2_easy_items(
+    disease_stats: dict[str, dict[str, Any]],
+    reference_date: datetime,
+) -> list[dict]:
+    """Q2 간편 — 10년이내 입원(기본진료) + 수술(세부진료)."""
+    items: list[dict] = []
+    buckets = _split_buckets(disease_stats, reference_date)
+    _d3m, _d1y, _d5y, d10y = _cutoffs(reference_date)
+
+    seen = set()
+    for gk in set(buckets["bucket_10y_hosp"].keys()) | set(buckets["bucket_10y_surg"].keys()):
+        if gk in seen:
+            continue
+        seen.add(gk)
+        s = disease_stats.get(gk, {})
+        dc = (s.get("diag_code") or "").strip().upper()
+        nm = (s.get("name") or "").strip()
+        if not _is_valid_disease(dc, nm):
+            continue
+        if not nm:
+            nm = dc
+        hp = " / ".join(_sorted_strings(s.get("hospitals", set()))[:2]) or "정보 없음"
+        fd = s.get("first_date", "2099-12-31")
+        inp_10y  = _dts_in_range(s.get("inpatient_dates", set()), d10y)
+        surg_10y = _dts_in_range(s.get("surgery_dates", set()), d10y)
+        inp_map  = s.get("_inpatient_days_map", {})
+        inp10y_days = sum(inp_map.get(d, 1) for d in inp_10y) if inp_10y else 0
+        wt = _weight_for(dc)
+        sn = next(iter(_sorted_strings(s.get("surgeries", set()))), None)
+        if inp_10y:
+            items.append(_make_item(
+                q="Q2", code=dc, disease=nm, hospital=hp,
+                first_diagnosis_date=fd,
+                reason=f"10년이내 입원 ({inp10y_days}일)",
+                date=max(inp_10y), weight=wt,
+                is_inpatient=True, inpatient_days=inp10y_days,
+                inpatient_count=len(inp_10y),
+                rule_id="R-E-Q2-INP-10Y",
+                evidence={"dates": inp_10y, "actual_days": inp10y_days},
+            ))
+        if surg_10y:
+            items.append(_make_item(
+                q="Q2", code=dc, disease=nm, hospital=hp,
+                first_diagnosis_date=fd,
+                reason=f"10년이내 수술: {sn or '수술'}",
+                date=max(surg_10y), weight=wt,
+                is_surgery=True, surgery_name=sn,
+                is_inpatient=bool(inp_10y), inpatient_days=inp10y_days,
+                rule_id="R-E-Q2-SURG-10Y",
+                evidence={"dates": surg_10y, "surgery": sn},
+            ))
+    return items
+
+
+def _build_q3_health_items(
+    disease_stats: dict[str, dict[str, Any]],
+    reference_date: datetime,
+) -> list[dict]:
+    """Q3 건강체 — 10년이내 입원(기본진료) + 수술(세부진료)."""
+    # 구조적으로 Q2 간편과 동일하지만 rule_id 와 q 만 다름.
+    base = _build_q2_easy_items(disease_stats, reference_date)
+    converted = []
+    for it in base:
+        new_it = dict(it)
+        new_it["duty_question"] = "Q3"
+        new_it["_rule_id"] = it.get("_rule_id", "").replace("R-E-Q2-", "R-H-Q3-")
+        converted.append(new_it)
+    return converted
+
+
+def _build_q3_easy_items(
+    disease_stats: dict[str, dict[str, Any]],
+    reference_date: datetime,
+) -> list[dict]:
+    """Q3 간편 — 5년이내 6대질환 (easy_q3_6codes)."""
+    items: list[dict] = []
+    buckets = _split_buckets(disease_stats, reference_date)
+    _d3m, _d1y, d5y, _d10y = _cutoffs(reference_date)
+
+    for gk, s in buckets["bucket_5y_major"].items():
+        dc = (s.get("diag_code") or "").strip().upper()
+        nm = (s.get("name") or "").strip()
+        if not _is_valid_disease(dc, nm):
+            continue
+        if not _code_in(dc, EASY_Q3_6CODES):
+            continue
+        if not nm:
+            nm = dc
+        hp = " / ".join(_sorted_strings(s.get("hospitals", set()))[:2]) or "정보 없음"
+        fd = s.get("first_date", "2099-12-31")
+        all_5y = _dts_in_range(
+            s.get("visit_dates", set()) | s.get("inpatient_dates", set()) | s.get("surgery_dates", set()),
+            d5y,
+        )
+        if not all_5y:
+            continue
+        inp_5y  = _dts_in_range(s.get("inpatient_dates", set()), d5y)
+        surg_5y = _dts_in_range(s.get("surgery_dates", set()), d5y)
+        inp_map = s.get("_inpatient_days_map", {})
+        inp5y_days = sum(inp_map.get(d, 1) for d in inp_5y) if inp_5y else 0
+        sn = next(iter(_sorted_strings(s.get("surgeries", set()))), None)
+        items.append(_make_item(
+            q="Q3", code=dc, disease=nm, hospital=hp,
+            first_diagnosis_date=fd,
+            reason=f"5년이내 6대중증질환: {nm} ({dc})",
+            date=max(all_5y), weight="critical",
+            is_inpatient=bool(inp_5y), inpatient_days=inp5y_days,
+            inpatient_count=len(inp_5y),
+            visit_count=_visit_count_in_range(s, d5y),
+            is_surgery=bool(surg_5y), surgery_name=sn if surg_5y else None,
+            rule_id="R-E-Q3-MAJOR-5Y",
+            evidence={"code": dc, "matched_prefix": "EASY_Q3_6CODES"},
+        ))
+    return items
+
+
+def _build_q4_health_items(
+    disease_stats: dict[str, dict[str, Any]],
+    reference_date: datetime,
+) -> list[dict]:
+    """Q4 건강체 — 5년이내 10대질환 (health_q4_10codes)."""
+    items: list[dict] = []
+    buckets = _split_buckets(disease_stats, reference_date)
+    _d3m, _d1y, d5y, _d10y = _cutoffs(reference_date)
+
+    for gk, s in buckets["bucket_5y_major"].items():
+        dc = (s.get("diag_code") or "").strip().upper()
+        nm = (s.get("name") or "").strip()
+        if not _is_valid_disease(dc, nm):
+            continue
+        if not _code_in(dc, HEALTH_Q4_10CODES):
+            continue
+        if not nm:
+            nm = dc
+        hp = " / ".join(_sorted_strings(s.get("hospitals", set()))[:2]) or "정보 없음"
+        fd = s.get("first_date", "2099-12-31")
+        all_5y = _dts_in_range(
+            s.get("visit_dates", set()) | s.get("inpatient_dates", set()) | s.get("surgery_dates", set()),
+            d5y,
+        )
+        if not all_5y:
+            continue
+        inp_5y  = _dts_in_range(s.get("inpatient_dates", set()), d5y)
+        surg_5y = _dts_in_range(s.get("surgery_dates", set()), d5y)
+        inp_map = s.get("_inpatient_days_map", {})
+        inp5y_days = sum(inp_map.get(d, 1) for d in inp_5y) if inp_5y else 0
+        sn = next(iter(_sorted_strings(s.get("surgeries", set()))), None)
+        wt = _weight_for(dc)
+        items.append(_make_item(
+            q="Q4", code=dc, disease=nm, hospital=hp,
+            first_diagnosis_date=fd,
+            reason=f"5년이내 10대질환: {nm} ({dc})",
+            date=max(all_5y), weight="critical" if wt == "critical" else "high",
+            is_inpatient=bool(inp_5y), inpatient_days=inp5y_days,
+            inpatient_count=len(inp_5y),
+            visit_count=_visit_count_in_range(s, d5y),
+            is_surgery=bool(surg_5y), surgery_name=sn if surg_5y else None,
+            rule_id="R-H-Q4-MAJOR-5Y",
+            evidence={"code": dc, "matched_prefix": "HEALTH_Q4_10CODES"},
+        ))
     return items

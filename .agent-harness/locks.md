@@ -6,6 +6,28 @@ Use this file to prevent Claude and Codex from editing the same files at the sam
 
 (none)
 
+## Released (SURIT-009)
+
+- `backend/filters.py` - Codex - SURIT-009 verification/publish - 2026-05-28 released
+- `backend/analyzer.py` - Codex - SURIT-009 verification/publish - 2026-05-28 released
+- `backend/pipeline/ai_judgment.py` - Codex - SURIT-009 verification/publish - 2026-05-28 released
+- `backend/pipeline/result_builder.py` - Codex - SURIT-009 verification/publish - 2026-05-28 released
+- `backend/keywords.json` - Codex - SURIT-009 verification/publish - 2026-05-28 released
+- `backend/tests/` - Codex - SURIT-009 verification/publish - 2026-05-28 released
+- `src/pages/Disclosure.tsx` - Codex - SURIT-009 verification/publish - 2026-05-28 released
+- `.agent-harness/handoff.md` - Codex - SURIT-009 handoff update - 2026-05-28 released
+- `.agent-harness/locks.md` - Codex - SURIT-009 lock release - 2026-05-28 released
+
+- `.agent-harness/tasks/SURIT-009-question-restructure.md` — Claude (Cowork) · SURIT-009 · 2026-05-27 해제
+- `backend/filters.py` — Claude (Cowork) · SURIT-009 · 2026-05-27 해제
+- `backend/analyzer.py` — Claude (Cowork) · SURIT-009 · 2026-05-27 해제
+- `backend/pipeline/ai_judgment.py` — Claude (Cowork) · SURIT-009 · 2026-05-27 해제
+- `backend/pipeline/result_builder.py` — Claude (Cowork) · SURIT-009 · 2026-05-27 해제
+- `backend/pipeline/helpers.py` — Claude (Cowork) · SURIT-009 · 2026-05-27 해제 (미수정 — 잠금만 보유)
+- `backend/keywords.json` — Claude (Cowork) · SURIT-009 · 2026-05-27 해제
+- `src/pages/Disclosure.tsx` — Claude (Cowork) · SURIT-009 · 2026-05-27 해제
+- `backend/tests/` — Claude (Cowork) · SURIT-009 · 2026-05-27 해제
+
 ## Released
 
 - `backend/pipeline/ai_judgment.py` - Codex - SURIT-VERIFY-001 verification/publish - 2026-05-27 released

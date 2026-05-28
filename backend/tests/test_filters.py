@@ -1,4 +1,5 @@
 import sys
+import pytest
 import os
 from datetime import datetime
 
@@ -71,7 +72,7 @@ def test_health_q1_inpatient_3m():
         )
     }
     items = build_code_based_items(ds, REF, PRODUCT_HEALTH)
-    assert any(it["_rule_id"] == "R-H-Q1-INP-3M" for it in items)
+    assert any(it["_rule_id"] == "R-Q1-INP-3M" for it in items)
 
 
 def test_health_q1_diag_only():
@@ -85,10 +86,11 @@ def test_health_q1_diag_only():
         )
     }
     items = build_code_based_items(ds, REF, PRODUCT_HEALTH)
-    diag_items = [it for it in items if it["_rule_id"] == "R-H-Q1-DIAG-3M"]
+    diag_items = [it for it in items if it["_rule_id"] == "R-Q1-DIAG-3M"]
     assert len(diag_items) == 1
 
 
+@pytest.mark.skip(reason="SURIT-009: VISIT-7 룰이 신 Q3 정의에서 제외됨")
 def test_health_q3_visit_and_surgery_coexist():
     """통원 7회 + 수술 → 두 사유 모두 생성 (배타 X)"""
     visits = [f"2025-{m:02d}-15" for m in range(1, 10)]  # 9회
@@ -107,6 +109,7 @@ def test_health_q3_visit_and_surgery_coexist():
     assert "R-H-Q3-SURG-10Y" in rule_ids
 
 
+@pytest.mark.skip(reason="SURIT-009: MED-30D 룰이 신 Q3 정의에서 제외됨")
 def test_health_q3_med_30d_with_inpatient():
     """투약 30일 + 입원 → 두 사유 모두"""
     ds = {
@@ -124,6 +127,7 @@ def test_health_q3_med_30d_with_inpatient():
     assert "R-H-Q3-INP-10Y" in rule_ids
 
 
+@pytest.mark.skip(reason="SURIT-009: MED-30D 룰이 신 Q3 정의에서 제외됨")
 def test_health_q3_med_30d_uses_max_episode_not_sum():
     """투약일수는 합산이 아닌 단일 처방 최대값 기준 (합산 버그 방지).
 
@@ -180,10 +184,11 @@ def test_health_q4_critical_codes():
         }
         items = build_code_based_items(ds, REF, PRODUCT_HEALTH)
         assert any(
-            it["_rule_id"] == "R-H-Q4-CRITICAL-5Y" for it in items
+            it["_rule_id"] == "R-H-Q4-MAJOR-5Y" for it in items
         ), f"Q4 미매칭: {code}"
 
 
+@pytest.mark.skip(reason="SURIT-009: CHRONIC-DRUG 룰이 신 Q1 정의에서 제외됨")
 def test_health_q1_chronic_drug_hypertension():
     """혈압강하제 30일 이상 → Q1"""
     ds = {
@@ -201,6 +206,7 @@ def test_health_q1_chronic_drug_hypertension():
     assert chronic[0]["_evidence"]["category"] == "혈압강하제"
 
 
+@pytest.mark.skip(reason="SURIT-009: MED-3M 룰이 신 Q1 정의에서 제외됨")
 def test_health_q1_med_3m_no_chronic():
     """처방 투약 3개월 이내, 상시복용약 미매칭 → R-H-Q1-MED-3M"""
     ds = {
@@ -258,6 +264,7 @@ def test_health_q2_old_repeat_tests_do_not_match():
     assert "R-H-Q2-TEST-REPEAT-SUSPECT" not in rule_ids
 
 
+@pytest.mark.skip(reason="SURIT-009: VISIT-7 룰이 신 Q3 정의에서 제외됨")
 def test_health_q3_visit7_with_inpatient():
     """입원 있어도 통원 7회 이상이면 Q3-VISIT-7 별도 생성"""
     visits = [f"2023-{m:02d}-10" for m in range(1, 9)]  # 8회
@@ -302,15 +309,19 @@ def test_chronic_drug_hits_multiple_categories():
 
 
 def test_filter_rejects_non_kcd_name():
-    """진료비/행위명 entry는 KCD 패턴 불일치 시 차단되어야 함"""
+    """진료비/행위명 entry는 KCD 패턴 불일치 시 차단되어야 함.
+
+    SURIT-009 신구조: K05(치주염)는 Q1 진단(3개월 내) 룰로 매칭되도록
+    visits/first_date 를 3개월 이내로 조정. 비KCD 항목 차단 검증이 핵심.
+    """
     ds = {
-        # 유효 disease — Q3 통원 7회 이상으로 flagging
+        # 유효 disease — Q1 진단(3개월 이내)으로 flagging
         "K05": _disease(
             code="K05",
             name="치주염",
-            visits=[f"2025-{m:02d}-15" for m in range(1, 10)],
-            first="2025-01-15",
-            latest="2025-09-15",
+            visits=["2026-04-15"],
+            first="2026-04-15",
+            latest="2026-04-15",
         ),
         # 비-disease entry (KCD 코드 없음 → filters가 차단해야 함)
         "재진진찰료|치과의|2025-10": {

@@ -18,6 +18,194 @@
 
 Use newest entries at the top.
 
+## 2026-05-28 15:29 Codex SURIT-009
+### Changed
+- SURIT-009 범위 전체 검증 후 게시: `backend/`, `src/pages/Disclosure.tsx`, `.agent-harness/`.
+- `.agent-harness/tasks/SURIT-009-question-restructure.md` task file 포함.
+
+### Verified
+- [x] `python -c "import ast; ast.parse(open('backend/filters.py').read()); print('OK')"` - OK (`PYTHONUTF8=1`)
+- [x] `python -c "import ast; ast.parse(open('backend/analyzer.py').read()); print('OK')"` - OK (`PYTHONUTF8=1`)
+- [x] `python -c "import ast; ast.parse(open('backend/pipeline/ai_judgment.py').read()); print('OK')"` - OK (`PYTHONUTF8=1`)
+- [x] `python -c "import ast; ast.parse(open('backend/pipeline/result_builder.py').read()); print('OK')"` - OK (`PYTHONUTF8=1`)
+- [x] `cd backend && python -m pytest -q` - 119 passed, 7 skipped
+- [x] `npx tsc -p tsconfig.app.json --noEmit` - passed
+- [x] `npm run build` - passed (Vite chunk size warning only)
+- [x] `git status --short -uall` - 허용 범위만 변경됨
+- [x] `git push origin main` - Codex publish step에서 완료
+
+### Notes
+- `PYTHONUTF8=1`은 Windows 기본 `cp949` 디코딩 문제를 피하기 위한 실행 환경이며, 검증 코드는 요청된 `ast.parse(open(...).read())` 형태 그대로 사용.
+
+### Next
+- Human: Railway+Vercel 배포 후 박화자 PDF 재테스트.
+- 확인 기준: 건강체/간편 탭 + Q1~Q4 분류 + Q2 의심 소견 확인.
+
+## 2026-05-27 22:30 Claude SURIT-009 (5~7단계 완료)
+### Changed
+- `src/pages/Disclosure.tsx`
+  - `AnalyzeResult` 타입 확장: `easy_reports?`/`easy_kakao?` 복구, 신구조 6 키 (`q1`/`q2_health`/`q2_easy`/`q3_health`/`q3_easy`/`q4_health`) optional 추가.
+  - `ResultView`: `productTab` state 복구, 건강체/간편 탭 UI 복구 + 카운트 뱃지, Metric 4 슬롯 (건강체/간편/전체병력/총투약일).
+  - 상단 subtitle 문구 복구 "심평원 병력 PDF를 기준으로 건강체와 간편심사 고지 대상 병력을 정리합니다."
+  - 작업 중 마운트 sync 사고로 line 943 부근 truncate → `git show HEAD:` 의 tail 로 복원, productTab + Q1~Q4 변경 보존됨.
+- `backend/filters.py` — `_build_q1_items` 의 처리 대상에 `drug_change_in_3m` 만 단독 발생한 항목(bucket_3m 미진입)도 포함. drug change 만 있는 경우도 R-Q1-DRUG-CHANGE 매칭됨.
+- `backend/tests/test_q_restructure.py` — 신구조 회귀 테스트 17 신규.
+  - `_split_buckets` 5종 분리 검증
+  - `_build_q1_items` 3개월 경계/처방변경/입원/수술 분리
+  - `_build_q2_health_items` 1년 경계 + Gemini 힌트 evidence
+  - `_build_q2_easy_items` 10년 입원/수술 분리
+  - `_build_q3_easy_items` 6대질환 7 코드 매칭, I67/I10/E11 제외
+  - `_build_q4_health_items` 10대질환 10 코드 매칭, I67/K21/M54 제외
+  - `EASY_Q3_6CODES` 정합성 (I60-I64 포함, I65-I69 제외)
+  - `HEALTH_Q4_10CODES` 정합성 (6대 + 백혈병/고혈압/당뇨/에이즈)
+  - `build_code_based_items` PRODUCT_HEALTH/PRODUCT_EASY 통합
+
+### Verified
+- [x] `python -c "import ast; ast.parse(...)"` — 모두 OK
+- [x] `cd backend && python -m pytest -q` — **119 passed + 7 skipped in 3.19s** (이전 102 → 신구조 17 추가)
+- [x] `npx tsc -p tsconfig.app.json --noEmit` — 통과
+- [x] `npx vite build --outDir /tmp/surit-build-009 --emptyOutDir` — 통과 (9.06s, chunk size 경고 외 정상)
+- [ ] `npm run build` 기본 경로는 마운트 dist/ unlink 권한으로 실패 — 코드 문제 아님 (Windows 환경에서는 통과 예상)
+
+### Notes
+**5단계 Disclosure.tsx**
+- AnalyzeResult 타입에 신구조 6 키를 optional 로 추가해 점진적 마이그레이션 가능. 현재 ResultView 는 기존 `standard_reports`/`easy_reports` (q_label dict) 를 그대로 렌더링하는 패턴 유지 — 백엔드의 신 q_labels ("[2번질문] 1년 이내 진단 (추가검사·재검사 의심 소견)", "[3번질문] 10년 이내 입원·수술", "[4번질문] 5년 이내 10대질환") 가 자동 반영됨.
+- 건강체 탭 표시: standard_reports → Q1/Q2/Q3/Q4 q_label dict
+- 간편 탭 표시: easy_reports → Q1/Q2/Q3 q_label dict
+- 마운트 sync 사고: line 943 truncate, git HEAD 의 tail(line 906~954) 로 복원해 ResultView 변경(line 476~554) 은 보존.
+
+**6단계 신구조 테스트**
+- 17 신규 + skip 7건 유지 (skip 은 신구조에서 의미를 잃은 기존 룰 검증 — VISIT-7/MED-30D/CHRONIC-DRUG/MED-3M. 신구조 검증이 우선이라는 사용자 명세에 따라 skip 유지보다 신구조 보강을 우선).
+
+**7단계 검증**
+- pytest 119 passed + 7 skipped
+- tsc 통과
+- vite build (outDir 우회) 통과 — 마운트 dist 권한으로 `npm run build` 직접 실행은 실패하나 Windows 에서는 정상
+
+### Next
+- Codex: SURIT-009 검증 + 푸시 — ① ast.parse(filters/analyzer/ai_judgment/result_builder) 재확인 ② `cd backend && python -m pytest -q` (119 passed + 7 skipped) 재실행 ③ Windows 환경 `npx tsc -p tsconfig.app.json --noEmit` + `npm run build` ④ `git status --short -uall` 로 허용 범위(`backend/keywords.json`, `backend/filters.py`, `backend/analyzer.py`, `backend/pipeline/ai_judgment.py`, `backend/pipeline/result_builder.py`, `backend/tests/test_filters.py`, `backend/tests/test_analyzer_integration.py`, `backend/tests/test_q_restructure.py`, `src/pages/Disclosure.tsx`, `.agent-harness/tasks/SURIT-009-question-restructure.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md`) 만 변경됐는지 확인 ⑤ 한국어 커밋 메시지(`SURIT-009: 고지 질문 구조 전면 재구성 (Q1~Q4 신구조 + 6대/10대 코드 + 간편심사 복구 + Gemini Q2 소견)`)로 `git push origin main` ⑥ Railway·Vercel 배포 후 318p 박화자 PDF 로 ① 건강체/간편 탭 모두 표시, ② Q1~Q4 분류 정상, ③ Q2 건강체 의심 소견 텍스트 부착 확인.
+
+## 2026-05-27 21:30 Claude SURIT-009 (2~4단계 백엔드 완료 — 진행 중)
+### Changed
+- `backend/keywords.json` — `easy_q3_6codes`(115, 6대질환: 암 C00-C97/D00-D09, 뇌졸중 I60-I64, 협심증 I20, 심근경색 I21-I22, 심장판막증 I34-I38, 간경화 K74), `health_q4_10codes`(131, 10대 = 6대 + 백혈병 C91-C95 + 고혈압 I10-I15 + 당뇨 E10-E14 + 에이즈 B20-B24) 추가. 이전 11codes 키는 제거.
+- `backend/filters.py`
+  - 키워드 로딩 확장: `EASY_Q3_6CODES`, `HEALTH_Q4_10CODES` 신규 import.
+  - `PRODUCT_EASY` 상수 복구 (BUG-008 에서 제거됐던 것 재도입).
+  - `build_code_based_items` 재구성 — product_type 별로 `_build_q1_items + (q2_health + q3_health + q4_health) or (q2_easy + q3_easy)` 통합 호출.
+  - 신규 함수 7개: `_split_buckets` (5종 사전 분리), `_build_q1_items` (3개월 공통: 진단·입원·수술·처방변경), `_build_q2_health_items` (1년 진단 전체), `_build_q2_easy_items` (10년 입원/수술), `_build_q3_health_items` (10년 입원/수술), `_build_q3_easy_items` (5년 6대질환), `_build_q4_health_items` (5년 10대질환).
+  - 기존 `_build_health` 는 호환 유지 (테스트 호환).
+- `backend/pipeline/ai_judgment.py` — `_call_q2_health_findings(q2_items, ref_date, api_key)` 신규. Q2 건강체 항목 list 를 입력으로 Gemini 가 "추가검사·재검사 의심 소견" 텍스트 생성 (temperature=0, seed=42, top_k=1, top_p=1.0, response_mime_type=application/json). 실패 시 빈 dict.
+- `backend/pipeline/result_builder.py`
+  - q_labels 갱신: "[2번질문] 1년 이내 진단 (추가검사·재검사 의심 소견)", "[3번질문] 10년 이내 입원·수술", "[4번질문] 5년 이내 10대질환".
+  - `build_summary_reports` 가 `easy_reports` 도 복구 — `_build_reports_for_product` 를 PRODUCT_HEALTH/PRODUCT_EASY 두 번 호출해 모두 채움. `flagged_codes = std_flagged | easy_flagged`.
+- `backend/analyzer.py`
+  - `filters` import 확장: `PRODUCT_HEALTH`/`PRODUCT_EASY` 추가.
+  - `_call_q2_health_findings` import 추가.
+  - `run_analysis` 가 `build_code_based_items` 를 PRODUCT_HEALTH + PRODUCT_EASY 두 번 호출 → `_health_items`/`_easy_items` 분리.
+  - Q1~Q4 항목 6 list 분리: `_q1_items`, `_q2_health_items`, `_q2_easy_items`, `_q3_health_items`, `_q3_easy_items`, `_q4_health_items`.
+  - Q2 건강체 항목에 `_call_q2_health_findings` 호출 결과 부착 (`q2_suspicion` 키).
+  - 반환 dict 에 6 키 신규: `q1`, `q2_health`, `q2_easy`, `q3_health`, `q3_easy`, `q4_health`. 기존 `standard_reports`/`easy_reports`/`meritz_easy` 호환 유지.
+- `backend/tests/test_filters.py`
+  - rule_id 갱신: `R-H-Q1-*` → `R-Q1-*` (DIAG-3M/INP-3M/SURG-3M), `R-H-Q4-CRITICAL-5Y` → `R-H-Q4-MAJOR-5Y`.
+  - 신구조 제외 룰 검증 6 테스트 `@pytest.mark.skip` 처리: `test_health_q3_visit_and_surgery_coexist`, `test_health_q3_med_30d_with_inpatient`, `test_health_q3_med_30d_uses_max_episode_not_sum`, `test_health_q1_chronic_drug_hypertension`, `test_health_q1_med_3m_no_chronic`, `test_health_q3_visit7_with_inpatient`.
+  - `test_filter_rejects_non_kcd_name` — K05 visit/first_date 를 3개월 이내로 변경 (Q1 DIAG-3M 룰로 매칭되도록).
+- `backend/tests/test_analyzer_integration.py` — `test_run_analysis_q3_visit_7plus` skip.
+
+### Verified
+- [x] `python -c "import ast; ast.parse(...)"` — filters.py / analyzer.py / ai_judgment.py / result_builder.py 모두 OK
+- [x] `cd backend && python -m pytest -q` — **102 passed + 7 skipped** (BUG-VERIFY-001 109 → 신구조 적용 후 정리)
+- [ ] 5/6/7단계 미수행 (다음 턴 예정).
+
+### Notes
+**1단계 진단 결과:**
+- (직전 턴 handoff 참조) filters.py 의 `_build_health` 가 R-H-Q1/Q3/Q4 룰 10개를 inline 보유.
+- `keywords.json` 에 6대/10대 코드 미보유 → 추가 완료.
+- 신구조에서 제외되는 룰: CHRONIC-DRUG (Q1), MED-3M (Q1), VISIT-7 (Q3), MED-30D (Q3) — 관련 테스트 6건 skip.
+
+**확정된 코드 정의 (사용자 명세):**
+- 6대질환 (easy_q3_6codes, 115 코드): 암 C00~C97/D00~D09, 뇌졸중 I60~I64, 협심증 I20, 심근경색 I21~I22, 심장판막증 I34~I38, 간경화증 K74.
+- 10대질환 (health_q4_10codes, 131 코드): 6대 + 백혈병(C91~C95 — C 범위에 이미 포함), 고혈압 I10~I15, 당뇨 E10~E14, 에이즈 B20~B24. ※ 항문질환(K60~K62)은 실손 전용으로 본 1차에서 제외. 희귀난치/정신/근골격/호흡기는 사용자 결정에 따라 10대 정의에서 제외.
+
+**main.py 호환:**
+- analyzer.run_analysis 가 기존 키(`standard_reports`, `easy_reports`, `meritz_easy={}`) + 신규 6 키 동시 반환. main.py 응답에는 두 set 모두 포함 (프런트가 점진적으로 마이그레이션 가능).
+- `code_based_items` 는 신구조 함수 결과의 합집합 (`_health_items + 일부 _easy_items`).
+
+**Q2 건강체 의심 소견 처리:**
+- `_q2_health_items` 각 item 에 Gemini 응답 텍스트가 `q2_suspicion` 키로 부착.
+- 실제 Gemini API 결정성: temperature=0 / seed=42 / top_k=1 / response_mime_type=JSON. 실패 시 retry_warnings 에 사유 기록.
+
+### Next
+- **Cowork (Claude) 가 이어서 진행** — locks 유지.
+- **5단계 (다음 턴):** `src/pages/Disclosure.tsx`
+  - `AnalyzeResult` 타입 확장: `easy_reports`/`easy_kakao` 복구, `q1`/`q2_health`/`q2_easy`/`q3_health`/`q3_easy`/`q4_health` (optional any[]) 추가.
+  - `productTab` state 복구 + 건강체/간편 탭 UI 복구.
+  - 건강체 탭: Q1 "3개월이내 확정진단·추가검사·투약(처방)변경", Q2 "1년이내 진단 (추가검사·재검사 의심 소견)", Q3 "10년이내 입원·수술", Q4 "5년이내 10대질환".
+  - 간편 탭: Q1 "3개월이내 확정진단·추가검사·투약(처방)변경", Q2 "10년이내 입원·수술", Q3 "5년이내 6대질환".
+  - 가장 빠른 구현: `standard_reports`/`easy_reports` 의 q_label dict 를 그대로 렌더링하는 기존 패턴 (BUG-008 이전) 복원.
+- **6단계 (다음 턴):** 신구조 단위 테스트 — `_split_buckets` 5종 분리, `_build_q1_items` 처방변경/입원/수술, `_build_q2_health_items` 1년 컷오프, `_build_q3_easy_items` 6대질환 매칭, `_build_q4_health_items` 10대질환 매칭, `_call_q2_health_findings` mock 결정성 회귀.
+- **7단계 (다음 턴):** 최종 검증 — `python -m pytest -q` (예상 ~110+), `npx tsc -p tsconfig.app.json --noEmit`, vite build (mount 권한 우회).
+
+## 2026-05-27 20:30 Claude SURIT-009 (1단계 진단 + keywords 보강 — 진행 중)
+### Changed
+- `.agent-harness/tasks/SURIT-009-question-restructure.md` — 태스크 파일 (linter 이미 생성됨, 본 턴에 별도 변경 없음).
+- `backend/keywords.json` — `easy_q3_6codes` (37개, 6대질환 KCD 접두사) + `health_q4_11codes` (95개, 11대질환 KCD 접두사) 신규 추가. `health_q5_codes`(기존 37개) 는 유지.
+
+### Verified
+- [x] `python -c "import json; json.load(open('backend/keywords.json'))"` — OK
+- [x] `cd backend && python -m pytest -q` — **109 passed in 3.60s** (회귀 없음)
+- [ ] 2~6단계 미수행 (다음 턴 예정).
+
+### Notes
+**1단계 진단 결과 (handoff Notes 정식 기록):**
+
+1) **filters.py 현재 함수 목록**
+- 헬퍼: `_load_kw`, `_code_in`, `_subtract_years`, `_visit_count_in_range`, `_parse_ymd`, `_max_presc`, `_is_valid_disease`, `_weight_for`, `_sorted_strings`, `_make_item`, `_chronic_drug_hits`, `_cutoffs`.
+- 메인 진입: `build_code_based_items` → 항상 `_build_health` 호출.
+- `_build_health` 안 inline rule_id: R-H-Q1-DIAG-3M, R-H-Q1-INP-3M, R-H-Q1-SURG-3M, R-H-Q1-CHRONIC-DRUG, R-H-Q1-MED-3M, R-H-Q3-INP-10Y, R-H-Q3-SURG-10Y, R-H-Q3-VISIT-7, R-H-Q3-MED-30D, R-H-Q4-CRITICAL-5Y (10건).
+- **신구조 차이**: 신 Q3 (건강체) 는 "10년 입원·수술"만 — R-H-Q3-VISIT-7 / R-H-Q3-MED-30D 는 신 Q3 에서 제외 대상. Q4 (건강체) 는 "5년 11대질환" — 기존 R-H-Q4-CRITICAL-5Y 의 코드 풀을 `health_q4_11codes` 로 확장 필요.
+- **Q2 건강체 결정론 룰은 현재 미존재** — 신구조에서는 "1년이내 진단 전체" 결정론 신설 + Gemini 가 의심 소견 부착.
+
+2) **3개월/1년/5년/10년 날짜 창 함수**
+- `filters._cutoffs(ref_date)` → `(d3m, d1y, d5y, d10y)` 튜플 반환 (SURIT-004 달력 기반 윤년 보정).
+- `_subtract_years` 가 5/10 년에 적용. 3개월/1년은 `timedelta(days=90/365)`.
+
+3) **result_builder.py 반환 구조**
+- `build_summary_reports` → 4-tuple `(std_reports, easy_reports={}, flagged_codes, merged_items)`.
+- `_build_reports_for_product` 가 q_labels dict 로 분류 (`[1번질문] 3개월...`, `[2번질문] 1년...`, `[참고] 10년...`, `[4번질문] 5년...`).
+- 신구조에서 q1/q2_health/q2_easy/q3_health/q3_easy/q4_health 6 키 추가 + 기존 std_reports/easy_reports 호환 키 동시 채우기 필요.
+
+4) **Disclosure.tsx 현재 상태**
+- `AnalyzeResult` 타입에서 `easy_reports`, `easy_kakao`, `meritz_easy_message` 는 BUG-008 에서 모두 제거.
+- ResultView 는 단일 "건강체/표준체 고지사항" 패널, 탭 UI 없음.
+- 신구조 적용 시: 건강체/간편 탭 복구 + Q1/Q2/Q3/Q4 섹션 라벨 6 패턴 매핑 필요.
+
+5) **11대질환 / 6대질환 KCD 보유 여부 — 미보유 (이번 턴에서 추가)**
+- 기존: `health_q5_codes`(37) 만 — 5대질병(암·심장·뇌혈관·고혈압·당뇨·간경화·에이즈) 위주.
+- 신규 추가:
+  - `easy_q3_6codes` (37) — 6대질환 (암 C/D0, 심장 I20~I25, 뇌혈관 I60~I69, 고혈압 I10~I15, 당뇨 E10~E14, 간 K70~K77).
+  - `health_q4_11codes` (95) — 6대 + 신장(N00~N29), 정신(F20~F33), 근골격(M05~M14), 호흡기(J40~J47).
+  - 희귀난치(Q00~Q99) 는 약관 기준이 자료별 상이해 본 1차 버전에서는 제외 — Codex 검증 시 약관 확인 후 추가 권장.
+
+**main.py 호환 전략 (외부 시그니처 변경 최소화):**
+- analyzer.run_analysis 가 `q1`, `q2_health`, `q2_easy`, `q3_health`, `q3_easy`, `q4_health` 6 키를 신규로 반환.
+- 동시에 `standard_reports = q1 ∪ q2_health ∪ q3_health ∪ q4_health` (q_labels 매핑), `easy_reports = q1 ∪ q2_easy ∪ q3_easy` 도 채워 main.py 가 자동 호환되도록 함.
+- `meritz_easy` 는 BUG-008 그대로 빈 dict 유지.
+
+**진행 한계 사유:**
+- 본 태스크는 7파일 변경 + 6 함수 신설 + AI 소견 연동 + 프런트 탭 복구 + 회귀 보강으로 추정 토큰량 매우 큼.
+- 이번 세션 내내 마운트 sync 의 tail-truncation 사고가 빈번 (BUG-008/009/VERIFY-001 모두 사후 fix 필요). 큰 변경을 한 번에 적용하면 더 큰 복구 비용 발생.
+- 이번 턴은 진단 + keywords.json 까지만 안정적으로 마무리. 다음 턴부터 단계별 진행.
+
+### Next
+- **Cowork (Claude) 가 이어서 진행** — locks 는 유지(아직 작업 중). 다음 턴 단계:
+  1. 2단계: filters.py 의 `_build_health` 를 그대로 두고 별도로 `_build_q1_items`(공통 3개월), `_build_q2_health_items`(1년 진단 전체), `_build_q2_easy_items`(10년 입원·수술), `_build_q3_health_items`(10년 입원·수술), `_build_q3_easy_items`(5년 6대 — `easy_q3_6codes`), `_build_q4_health_items`(5년 11대 — `health_q4_11codes`) 6 함수 신설. `build_code_based_items` 가 모두 호출해 단일 list 로 합쳐 반환 (기존 _build_health 는 R-H-Q3-VISIT-7/MED-30D 분리 호환을 위해 deprecation 주석만 추가).
+  2. 3단계: `ai_judgment.py` 에 `_call_q2_health_findings` 추가 — Q2_health 항목 list 를 입력으로 받아 항목별 "추가검사/재검사 의심 소견" 텍스트 부착. temperature=0/seed=42 유지. analyzer 의 `_call_medical_judgment` 와 병렬 호출.
+  3. 4단계: `result_builder.build_summary_reports` 가 q1/q2_health/q2_easy/q3_health/q3_easy/q4_health 6 키 반환. analyzer.run_analysis 가 standard_reports/easy_reports 호환 키 채움.
+  4. 5단계: Disclosure.tsx — AnalyzeResult 타입 6 키 추가, productTab state 복구, Q1~Q4 라벨 매핑.
+  5. 6단계: 각 함수 단위 테스트 6건 + 회귀 109 + (예상) 약 6 = 115 passed.
+  6. 검증: pytest + tsc + build.
+- 만약 Codex 가 이 잠금을 이어 받는다면, 진단 결과를 참고하여 단계별로 진행하고 마운트 sync 우려 시 git HEAD 재구성을 활용. commit/push 는 모든 단계가 끝난 뒤에 한 번만.
+
 ## 2026-05-27 19:20 Codex SURIT-VERIFY-001
 ### Changed
 - `backend/pipeline/ai_judgment.py` - Gemini 판단 호출 config 안정화 재검증.

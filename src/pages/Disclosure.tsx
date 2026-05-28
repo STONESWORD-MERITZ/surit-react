@@ -56,14 +56,23 @@ type SummaryItem = {
 };
 
 type AnalyzeResult = {
-  // SURIT-BUG-008: 간편심사 제거 — easy_reports/easy_kakao/meritz_easy_message 필드 제거.
+  // SURIT-009: 신구조 — 건강체/간편 탭 + Q1~Q4 6 키 복구. easy_reports/easy_kakao 도 호환 유지.
   flagged_count: number;
   total_q_count: number;
   total_visit_sum: number;
   total_med_sum: number;
   standard_reports: Record<string, SummaryItem[]>;
+  easy_reports?: Record<string, SummaryItem[]>;
+  // SURIT-009: 신구조 6 키 (결정론 raw items list). 프런트가 점진적 마이그레이션 가능.
+  q1?: SummaryItem[];
+  q2_health?: SummaryItem[];
+  q2_easy?: SummaryItem[];
+  q3_health?: SummaryItem[];
+  q3_easy?: SummaryItem[];
+  q4_health?: SummaryItem[];
   all_disease_summary: DiseaseSummary[];
   standard_kakao: string;
+  easy_kakao?: string;
   parse_errors: string[];
   warnings: string[];
 };
@@ -124,7 +133,7 @@ const modeCopy: Record<AudienceMode, {
   agent: {
     badge: "설계사용",
     title: "알릴의무 필터",
-    subtitle: "심평원 병력 PDF를 기준으로 건강체/표준체 고지 대상 병력을 정리합니다.",
+    subtitle: "심평원 병력 PDF를 기준으로 건강체와 간편심사 고지 대상 병력을 정리합니다.",
     dateLabel: "청약 예정일",
     dateHelp: "상품 가입 예정일 기준으로 3개월, 1년, 5년, 10년 기간을 계산합니다.",
     uploadHelp: "기본진료, 세부진료, 처방조제 PDF를 함께 올리면 정확도가 올라갑니다.",
@@ -465,8 +474,14 @@ function DisclaimerBox() {
 }
 
 function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMode }) {
-  // SURIT-BUG-008: 간편심사 제거 — productTab/easyCount/메리츠 메시지·탭 UI 모두 제거.
+  // SURIT-009: 건강체/간편 탭 + Q1~Q4 신구조 섹션 복구.
+  const [productTab, setProductTab] = useState<"standard" | "easy">("standard");
+  const easyReports = result.easy_reports || {};
   const stdCount = Object.values(result.standard_reports).reduce((s, arr) => s + arr.length, 0);
+  const easyCount = Object.values(easyReports).reduce((s, arr) => s + arr.length, 0);
+  const activeReports = productTab === "standard" ? result.standard_reports : easyReports;
+  const activeMemo = productTab === "standard" ? result.standard_kakao : (result.easy_kakao || "");
+  const activeLabel = productTab === "standard" ? "건강체/표준체" : "간편심사";
   const copy = modeCopy[mode];
 
   return (
@@ -485,8 +500,9 @@ function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMod
 
       <div className="mb-5 rounded-[8px] bg-white p-5 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
         <h2 className="text-xs font-bold text-[#4F46E5]">{copy.resultTitle}</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid gap-3 sm:grid-cols-4">
           <Metric label="건강체 고지" value={`${stdCount}건`} tone={stdCount ? "text-amber-600" : "text-emerald-600"} />
+          <Metric label="간편 고지" value={`${easyCount}건`} tone={easyCount ? "text-amber-600" : "text-emerald-600"} />
           <Metric label="전체 병력" value={`${result.all_disease_summary.length}개`} />
           <Metric label="총 투약일" value={`${result.total_med_sum}일`} />
         </div>
@@ -495,20 +511,41 @@ function ResultView({ result, mode }: { result: AnalyzeResult; mode: AudienceMod
       <AllDiseaseSection diseases={result.all_disease_summary} />
 
       <section className="mb-5 overflow-hidden rounded-[8px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-        <div className="border-b border-gray-100 px-4 py-3 text-sm font-bold text-[#4F46E5]">
-          건강체/표준체 고지사항
-          {stdCount > 0 && (
-            <span className="ml-2 rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-600">
-              {stdCount}
-            </span>
-          )}
+        <div role="tablist" aria-label="심사 유형" className="flex border-b border-gray-100">
+          {(["standard", "easy"] as const).map((tab) => {
+            const label = tab === "standard" ? "건강체/표준체" : "간편심사";
+            const count = tab === "standard" ? stdCount : easyCount;
+            const active = productTab === tab;
+            return (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setProductTab(tab)}
+                className={`relative flex-1 py-3.5 text-sm font-bold transition-all ${
+                  active ? "text-[#4F46E5]" : "text-gray-400 hover:text-gray-600"
+                }`}
+              >
+                {label}
+                {count > 0 && (
+                  <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+                    active ? "bg-indigo-100 text-indigo-600" : "bg-gray-100 text-gray-500"
+                  }`}>
+                    {count}
+                  </span>
+                )}
+                {active && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#4F46E5]" />}
+              </button>
+            );
+          })}
         </div>
 
-        <div className="p-4">
+        <div role="tabpanel" className="p-4">
           <DisclosureSection
-            reports={result.standard_reports}
-            memo={result.standard_kakao}
-            label={`건강체/표준체 ${copy.emptyTitle}`}
+            reports={activeReports}
+            memo={activeMemo}
+            label={`${activeLabel} ${copy.emptyTitle}`}
             mode={mode}
           />
         </div>

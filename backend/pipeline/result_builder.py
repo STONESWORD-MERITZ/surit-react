@@ -93,9 +93,9 @@ def _build_reports_for_product(merged_items, disease_stats, product_type, d3m, d
     _q_since = {"Q1": d3m, "Q2": d1y, "Q3": d10y, "Q4": d5y}
     q_labels = {
         "Q1": "[1번질문] 3개월 이내 진단·입원·수술·투약",
-        "Q2": "[2번질문] 1년 이내 추가검사(재검사)",
-        "Q3": "[참고] 최근 10년 입원·수술·7회이상통원·30일이상투약 (청약서 3번 문항은 5년 기준 — 별도 대조 필요)",
-        "Q4": "[4번질문] 5년 이내 중대질병",
+        "Q2": "[2번질문] 1년 이내 진단 (추가검사·재검사 의심 소견)",
+        "Q3": "[3번질문] 10년 이내 입원·수술",
+        "Q4": "[4번질문] 5년 이내 10대질환",
     }
 
     summary_reports = defaultdict(list)
@@ -333,8 +333,11 @@ def build_summary_reports(
         "건강체/표준체 (일반심사)",
         _d3m_dt, _d1y_dt, _d10y_dt, _d5y_dt,
     )
-
-    # SURIT-BUG-008: 간편 보고서 제거. main.py 호환을 위해 빈 dict 반환.
-    easy_reports: dict = {}
-    flagged_codes = std_flagged
+    # SURIT-009: 간편 보고서 복구 — easy_reports 도 함께 생성.
+    easy_reports, easy_flagged = _build_reports_for_product(
+        merged_items, disease_stats,
+        "간편심사 (유병자 3-5-5 기준)",
+        _d3m_dt, _d1y_dt, _d10y_dt, _d5y_dt,
+    )
+    flagged_codes = std_flagged | easy_flagged
     return std_reports, easy_reports, flagged_codes, merged_items

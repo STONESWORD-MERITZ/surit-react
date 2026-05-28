@@ -307,6 +307,109 @@ async def _call_medical_judgment(
         return {"additional_tests": {}, "treatment_ongoing": {}, "_error": str(e)[:120]}
 
 
+
+async def _call_q2_health_findings(q2_items: list[dict], reference_date, api_key: str) -> dict:
+    """SURIT-009: Q2 건강체 항목별 '추가검사·재검사 의심 소견' 텍스트 생성.
+
+    q2_items 는 filters._build_q2_health_items 가 만든 결정론 결과 list.
+    각 항목에 대해 코드/병명 기반으로 일반적인 의심 추가검사 한 줄을 부착한다.
+    temperature=0/seed=42/top_k=1 로 결정성 보장.
+
+    반환: {disease_code: suspicion_text} 매핑. 호출 실패 시 빈 dict.
+    """
+    if not q2_items:
+        return {}
+
+    payload = [
+        {
+            "disease_code": (it.get("code") or "").upper(),
+            "disease_name": it.get("disease") or "",
+            "diagnosis_date": it.get("date", ""),
+            "hospital": it.get("hospital", ""),
+        }
+        for it in q2_items
+    ]
+
+    contents = (
+        f"기준일: {reference_date}\n"
+        f"[Q2 건강체 1년이내 확정진단 목록 — 추가검사·재검사 의심 소견 부착]\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+        + (
+            "\n\n각 항목에 대해 의심 가능한 추가검사·재검사를 한 줄로 간결하게 표현하세요.\n"
+            "예: 위염 → '위내시경 재검 가능성', 갑상선결절 → '갑상선초음파/세침흡인 추가 가능성'.\n"
+            "반드시 JSON 형식으로만 응답:\n"
+            "{\n"
+            "  \"findings\": [\n"
+            "    {\"disease_code\": \"<코드>\", \"suspicion\": \"<의심 소견 한 줄>\"}\n"
+            "  ]\n"
+            "}\n"
+        )
+    )
+
+    try:
+        api_client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=120_000),
+        )
+    except TypeError:
+        api_client = genai.Client(api_key=api_key)
+
+    # SURIT-VERIFY-001 + SURIT-009: 결정성 파라미터 유지.
+    try:
+        config = types.GenerateContentConfig(
+            system_instruction=(
+                "당신은 한국 보험 언더라이팅 전문 의사입니다. "
+                "1년이내 확정진단 항목에 대해 일반적으로 의심되는 추가검사·재검사를 한 줄로 표현하세요. "
+                "추측·확률 표현 금지. 동일 입력 → 동일 출력."
+            ),
+            temperature=0,
+            top_p=1.0,
+            top_k=1,
+            seed=42,
+            response_mime_type="application/json",
+        )
+    except TypeError:
+        config = types.GenerateContentConfig(
+            system_instruction=(
+                "당신은 한국 보험 언더라이팅 전문 의사입니다. "
+                "1년이내 확정진단 항목에 대해 일반적으로 의심되는 추가검사·재검사를 한 줄로 표현하세요."
+            ),
+            temperature=0,
+        )
+
+    def _sync_gen():
+        return api_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents,
+            config=config,
+        )
+
+    try:
+        if hasattr(api_client, "aio") and hasattr(api_client.aio.models, "generate_content"):
+            message = await api_client.aio.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=contents,
+                config=config,
+            )
+        else:
+            message = await asyncio.to_thread(_sync_gen)
+        raw = message.text if getattr(message, "text", None) else ""
+        if not raw.strip():
+            return {}
+        result = extract_json(raw)
+        out: dict = {}
+        for item in result.get("findings", []) or []:
+            if not isinstance(item, dict):
+                continue
+            code = (item.get("disease_code") or "").upper().strip()
+            susp = (item.get("suspicion") or "").strip()
+            if code and susp:
+                out[code] = susp
+        return out
+    except Exception:
+        return {}
+
+
 async def analyze_single_pdf(parsed_data: dict, product_type: str, reference_date, api_key: str) -> dict:
     """파싱된 PDF 1건에 대해 Gemini 분석 (비동기)."""
     _ = reference_date

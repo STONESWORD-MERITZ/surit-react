@@ -8,7 +8,11 @@ import gc
 import re
 from datetime import datetime, timedelta
 
-from filters import build_code_based_items as _build_code_based_items
+from filters import (
+    build_code_based_items as _build_code_based_items,
+    PRODUCT_HEALTH as _PRODUCT_HEALTH,
+    PRODUCT_EASY as _PRODUCT_EASY,
+)
 # SURIT-BUG-008: meritz_easy_rules.evaluate_meritz_easy 제거.
 
 # ── pipeline re-export (테스트·외부 임포트 호환) ─────────────────
@@ -47,6 +51,7 @@ from pipeline.disease_aggregator import (
 from pipeline.ai_judgment import (
     MEDICAL_JUDGMENT_SYSTEM_PROMPT,
     _call_medical_judgment,
+    _call_q2_health_findings,
     _finalize_raw_text_for_gemini,
     _merge_ai_results,
     analyze_single_pdf,
@@ -723,12 +728,22 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         dc["group"] for dc in drug_change_summary
         if dc.get("change_type") in ("약 종류 변경", "새 약 추가", "용량 증가")
     }
-    code_based_items = _build_code_based_items(
+    # SURIT-009: 두 product_type 결과를 별도로 만들어 q1/q2_health/q2_easy/q3_health/q3_easy/q4_health
+    # 분리에 활용. code_based_items 는 main.py 호환을 위해 product_type 기반 결과 + 신구조 합산.
+    _health_items = _build_code_based_items(
         disease_stats=disease_stats,
         reference_date=today,
-        product_type=product_type,
+        product_type=_PRODUCT_HEALTH,
         drug_change_groups=drug_change_groups,
     )
+    _easy_items = _build_code_based_items(
+        disease_stats=disease_stats,
+        reference_date=today,
+        product_type=_PRODUCT_EASY,
+        drug_change_groups=drug_change_groups,
+    )
+    # code_based_items 는 두 set 의 합 (q 분류는 result_builder 의 q_labels 가 처리).
+    code_based_items = list(_health_items) + [it for it in _easy_items if it.get("duty_question") in ("Q2", "Q3")]
 
     # ── 처방 종료일 계산 ─────────────────────────────────────────
     prescription_end_details, earliest_available_date = \
@@ -823,6 +838,27 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
     del system_prompt
     gc.collect()
 
+    # ── SURIT-009: q1/q2_health/q2_easy/q3_health/q3_easy/q4_health 항목 분리 ──
+    _q1_items = [it for it in _health_items if it.get("duty_question") == "Q1"]
+    _q2_health_items = [it for it in _health_items if it.get("duty_question") == "Q2"]
+    _q3_health_items = [it for it in _health_items if it.get("duty_question") == "Q3"]
+    _q4_health_items = [it for it in _health_items if it.get("duty_question") == "Q4"]
+    _q2_easy_items = [it for it in _easy_items if it.get("duty_question") == "Q2"]
+    _q3_easy_items = [it for it in _easy_items if it.get("duty_question") == "Q3"]
+
+    # SURIT-009: Q2 건강체 항목에 Gemini 의심 소견 텍스트 부착.
+    if _q2_health_items:
+        try:
+            _q2_findings = await _call_q2_health_findings(_q2_health_items, today_str, api_key)
+        except Exception as _e:
+            retry_warnings.append(f"⚠️ Q2 건강체 의심 소견 생성 실패 — {str(_e)[:80]}")
+            _q2_findings = {}
+        for it in _q2_health_items:
+            code = (it.get("code") or "").upper()
+            susp = _q2_findings.get(code, "")
+            if susp:
+                it["q2_suspicion"] = susp
+
     # ── summary_reports 빌드 ─────────────────────────────────────
     std_reports, easy_reports, flagged_codes, _ = build_summary_reports(
         disease_stats, code_based_items, ai_result, product_type, today,
@@ -840,6 +876,13 @@ async def run_analysis(active_files, product_type, reference_date, birthdate_pw,
         "summary_reports":         {k: list(v) for k, v in summary_reports.items()},
         "standard_reports":        {k: list(v) for k, v in std_reports.items()},
         "easy_reports":            {k: list(v) for k, v in easy_reports.items()},
+        # SURIT-009: 신구조 6 키 — Q1 공통 + Q2/Q3 건강체·간편 + Q4 건강체.
+        "q1":                      _q1_items,
+        "q2_health":               _q2_health_items,
+        "q2_easy":                 _q2_easy_items,
+        "q3_health":               _q3_health_items,
+        "q3_easy":                 _q3_easy_items,
+        "q4_health":               _q4_health_items,
         "all_disease_summary":     all_disease_summary,
         "flagged_codes":           flagged_codes,
         "prescription_end_details": prescription_end_details,
