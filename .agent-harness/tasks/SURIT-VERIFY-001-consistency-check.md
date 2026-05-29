@@ -1,4 +1,4 @@
-# SURIT-VERIFY-001: AI 판단 프롬프트 안정화
+﻿# SURIT-VERIFY-001: AI 판단 프롬프트 안정화
 
 ## 목적
 동일한 PDF로 반복 분석 시 AI 판단 결과가
@@ -13,7 +13,7 @@ P1 (신뢰도 직결)
 ~1시간
 
 ## Owner
-Cowork
+Codex
 
 ## 범위
 - backend/pipeline/ai_judgment.py (프롬프트 + 호출 파라미터)
@@ -61,5 +61,5 @@ cd backend && python -m pytest -q
 - 프롬프트 모호한 지시 개선
 - pytest 104 passed
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제

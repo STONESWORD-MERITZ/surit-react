@@ -7,23 +7,22 @@ This repository is now run with Codex as the single working agent.
 - Name: SURIT
 - Local path: `C:\Users\18_rk\surit-react`
 - Task prefix: `SURIT`
-- Legacy project guide: `CLAUDE.md`
+- Project context guide: `CLAUDE.md`
 
-`CLAUDE.md` is kept as a legacy knowledge and convention document. Codex should read it when project behavior, stack details, or historical preferences matter, but new work should follow this file and the active task file first.
+`CLAUDE.md` keeps project knowledge, codebase conventions, and user working preferences. The filename remains for continuity, but the active workflow is Codex-only. New work should follow this file and the active task file first.
 
 ## Agent Roles
 
 - Codex: planning, code reading, architecture judgment, implementation, refactoring, tests, lint/build verification, browser smoke checks, handoff notes, scoped Git staging, commit, and push when the user asks to publish.
 - User: priority, product direction, production approval, and decisions that affect business behavior or risky data changes.
-- Claude/Cowork: not part of the default workflow. Old Claude entries in `.agent-harness/handoff.md` are historical context only.
 
-Each active task should have one current owner: Codex, unless the user explicitly says otherwise.
+Each active task has one current owner: Codex, unless the user explicitly says otherwise. Any old Claude/Cowork references in historical handoff entries are archival context only and do not define the current process.
 
 ## Required Workflow
 
 1. Read this file first.
 2. Read `.agent-harness/handoff.md` for the latest project state.
-3. Read `CLAUDE.md` only as legacy project context when useful.
+3. Read `CLAUDE.md` as project context when useful.
 4. Read or create the relevant task file in `.agent-harness/tasks/`.
 5. Check `.agent-harness/locks.md` before editing files.
 6. Check `git status --short -uall` before making changes.

@@ -1,4 +1,4 @@
-# SURIT-006: run_analysis 함수 분해
+﻿# SURIT-006: run_analysis 함수 분해
 
 ## 목적
 backend/analyzer.py의 run_analysis 함수가 과대하여
@@ -12,7 +12,7 @@ P3
 ~1~2시간
 
 ## Owner
-Cowork (백엔드 리팩터링)
+Codex (백엔드 리팩터링)
 
 ## 범위 (수정 허용 파일)
 - backend/analyzer.py (분해 대상)
@@ -64,7 +64,7 @@ cd backend && python -m pytest -q   ← 112개 + 신규 통과
 - run_analysis 분해 완료
 - pytest 전체 통과 (112 + 신규)
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제
 
 ## 진단 메모 (1단계 결과)

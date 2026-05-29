@@ -1,4 +1,4 @@
-# SURIT-009: 고지 질문 구조 전면 재구성
+﻿# SURIT-009: 고지 질문 구조 전면 재구성
 
 ## 목적
 건강체/간편 질문 구조를 아래 기준으로 재구성한다.
@@ -17,7 +17,7 @@ P0 (정확도·신뢰도 직결)
 ~3시간
 
 ## Owner
-Cowork
+Codex
 
 ## 범위
 - backend/filters.py
@@ -85,5 +85,5 @@ npm run build
 - pytest 전체 통과
 - tsc + build 통과
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제

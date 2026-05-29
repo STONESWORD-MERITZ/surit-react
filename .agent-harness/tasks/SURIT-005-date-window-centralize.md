@@ -1,4 +1,4 @@
-# SURIT-005: 날짜 창 로직 중앙화
+﻿# SURIT-005: 날짜 창 로직 중앙화
 
 ## 목적
 filters.py와 helpers.py에 분산된 _dts_in_range 중복 로직을 제거하고,
@@ -13,7 +13,7 @@ P3
 ~30분
 
 ## Owner
-Cowork (백엔드 리팩터링)
+Codex (백엔드 리팩터링)
 
 ## 범위 (수정 허용 파일)
 - backend/pipeline/helpers.py (중앙화 대상)
@@ -60,7 +60,7 @@ cd backend && python -m pytest -q   ← 107개 + 신규 통과
 - _dts_in_range 중앙화 완료
 - pytest 전체 통과 (107 + 신규)
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제
 
 ## 진단 메모 (1단계 결과)

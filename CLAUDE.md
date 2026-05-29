@@ -1,22 +1,29 @@
-# Claude 진입 지침
-이 프로젝트는 Claude(Cowork)와 Codex가 함께 작업하는 하네스 방식입니다.
+# Codex 프로젝트 지침
+
+이 파일은 기존 이름을 유지하지만, 현재 SURIT는 **Codex 단독 하네스 방식**으로 진행한다.
+`AGENTS.md`가 최상위 운영 규칙이고, 이 파일은 프로젝트 성격·사용자 선호·코드베이스 관례를 보완한다.
+
 ## 작업 시작 시 필수 순서
-1. `AGENTS.md`를 먼저 읽는다 (공통 규칙)
-2. `.agent-harness/locks.md`로 다른 에이전트 작업 파일 확인, 충돌 없으면 본인 잠금 추가
-3. `.agent-harness/handoff.md`로 직전 인수인계 확인
-4. 지정된 `.agent-harness/tasks/{태스크ID}.md`만 수행
-5. `.agent-harness/verify.md`의 검증 명령 실행
-6. 완료 후 `handoff.md` 상단에 변경/검증/이슈 기록 (표준 포맷 사용)
-7. `locks.md`에서 잠금 해제
+1. `AGENTS.md`를 먼저 읽는다.
+2. `.agent-harness/handoff.md`의 최신 항목으로 현재 상태를 확인한다.
+3. 지정된 `.agent-harness/tasks/{태스크ID}.md`를 읽거나, 문서 정리/긴급 수정이면 필요한 범위만 새 태스크로 기록한다.
+4. `.agent-harness/locks.md`로 active lock이 비어 있는지 확인하고, 편집 범위에 Codex 잠금을 추가한다.
+5. `git status --short -uall`로 변경 범위를 확인한다.
+6. 태스크 파일 또는 `.agent-harness/verify.md`의 검증 명령을 실행한다.
+7. 완료 후 `handoff.md` 상단에 변경/검증/이슈/다음 행동을 표준 포맷으로 기록한다.
+8. `locks.md`에서 Codex 잠금을 해제한다.
+9. 사용자가 publish를 요청했거나 태스크 완료 조건에 push가 있으면, 검증 통과 후 Codex가 태스크 범위 파일만 stage → commit → push 한다.
+
 ## 절대 규칙
-- 태스크 파일에 명시되지 않은 파일 수정 금지
-- 검증 미실행 시 반드시 이유를 handoff에 남기기
-- 본인이 잠그지 않은 파일 수정 금지
-- 다음 에이전트(Codex/Human)를 handoff의 Next에 명시
-- 검증·푸시가 필요한 태스크는 Cowork가 handoff의 Next에 "Codex: 검증 + 푸시"로 명시 (Cowork는 직접 git push 하지 않음)
+- 태스크 범위 밖 파일은 수정하지 않는다. 범위 확장이 필요하면 handoff Notes에 이유를 남긴다.
+- 검증 미실행 시 반드시 정확한 이유를 handoff에 남긴다.
+- active lock이 걸린 파일은 중복 편집하지 않는다.
+- handoff의 Next는 기본적으로 `Codex` 또는 `Human`만 사용한다.
+- 과거 handoff/task/locks의 Claude 또는 Cowork 표기는 역사 기록일 뿐이며, 새 작업 지시는 Codex 단독 기준으로 해석한다.
+
 ## 태스크 ID 규칙
-- 이 프로젝트(SURIT)는 `SURIT-{번호}-{슬러그}.md` 형식
-- 번호는 `.agent-harness/tasks/` 폴더의 다음 순번
+- 이 프로젝트(SURIT)는 `SURIT-{번호}-{슬러그}.md` 형식을 기본으로 한다.
+- 운영 문서 정리는 `SURIT-HARNESS-*`, 긴급 버그는 `SURIT-BUG-*`, 검증 태스크는 `SURIT-VERIFY-*`를 사용한다.
 ---
 
 # CLAUDE.md
@@ -282,5 +289,4 @@ src/                        React 19 · TypeScript · Vite (Vercel 배포)
 - 프런트 타입체크: `npx tsc -p tsconfig.app.json --noEmit` 및 `tsconfig.node.json`
 - 빌드: `npm run build`
 - 배포: `main` 브랜치 푸시 시 Vercel(프런트)·Railway(백엔드) 자동 배포.
-- git 반영: 검증 통과 후 **Codex가 커밋·푸시까지 담당**한다. Cowork(Claude)는 직접 푸시하지 않으며, Codex가 태스크 범위 파일만 `git add` 후 한국어 커밋 메시지(`{태스크ID}: {변경 요지}`)로 `git push origin main` 한다.
-
+- git 반영: 검증 통과 후 **Codex가 커밋·푸시까지 담당**한다. Codex가 태스크 범위 파일만 `git add` 후 한국어 커밋 메시지(`{태스크ID}: {변경 요지}`)로 `git push origin main` 한다.

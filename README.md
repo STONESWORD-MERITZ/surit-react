@@ -1,73 +1,52 @@
-# React + TypeScript + Vite
+# SURIT
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+보험설계사용 알릴의무(고지의무) 분석 플랫폼입니다.
 
-Currently, two official plugins are available:
+## 현재 운영 방식
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+SURIT 저장소는 이제 **Codex 단독 하네스 방식**으로 진행합니다.
 
-## React Compiler
+- 최상위 규칙: `AGENTS.md`
+- 프로젝트 세부 관례: `CLAUDE.md` (파일명은 유지, 내용은 Codex 기준)
+- 태스크: `.agent-harness/tasks/`
+- 최신 작업 기록: `.agent-harness/handoff.md`
+- 잠금 관리: `.agent-harness/locks.md`
+- 검증 명령: `.agent-harness/verify.md`
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+과거 handoff/task에 남아 있는 Claude 또는 Cowork 표기는 역사 기록입니다. 새 작업의 구현, 검증, 커밋, 푸시는 Codex가 단독으로 담당합니다.
 
-## Expanding the ESLint configuration
+## 기술 스택
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- Frontend: React 19, TypeScript, Vite, Tailwind CSS
+- Backend: FastAPI, Python, pdfplumber, pandas, google-genai
+- Deploy: Vercel(frontend), Railway(backend)
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## 기본 검증
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```powershell
+npm run lint
+npm test
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+백엔드 변경 시:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```powershell
+cd backend
+python -m pytest -q
 ```
+
+프런트 변경 시:
+
+```powershell
+npx tsc -p tsconfig.app.json --noEmit
+npx tsc -p tsconfig.node.json --noEmit
+```
+
+## 작업 원칙
+
+1. `AGENTS.md`를 먼저 읽고 하네스 절차를 따른다.
+2. 작업 전 `git status --short -uall`과 `.agent-harness/locks.md`를 확인한다.
+3. 태스크 범위 안에서만 수정한다.
+4. 검증 결과와 남은 이슈를 `handoff.md` 상단에 남긴다.
+5. 사용자가 publish를 요청했거나 태스크 완료 조건에 push가 있으면 Codex가 직접 커밋·푸시한다.

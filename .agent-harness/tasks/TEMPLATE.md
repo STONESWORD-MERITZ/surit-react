@@ -1,7 +1,7 @@
-# TASK SURIT-000
+﻿# TASK SURIT-000
 
 project: SURIT
-owner: unassigned
+owner: Codex
 status: draft
 
 ## Goal
@@ -37,9 +37,9 @@ Do not edit:
 - Stage only files changed for this task.
 - Commit message format: `SURIT-000: short summary`
 
-## Handoff To
+## Next
 
-Claude review or Codex verify
+Codex continues verification and publication unless the user must make a product or production decision.
 
 ## Notes
 

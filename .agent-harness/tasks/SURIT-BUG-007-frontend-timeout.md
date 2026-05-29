@@ -1,4 +1,4 @@
-# SURIT-BUG-007: 프런트 타임아웃 서버와 동기화
+﻿# SURIT-BUG-007: 프런트 타임아웃 서버와 동기화
 
 ## 목적
 현재 프런트 fetch 타임아웃이 ~180초로
@@ -13,7 +13,7 @@ P0 (서비스 오류 직결)
 ~10분
 
 ## Owner
-Cowork
+Codex
 
 ## 범위 (수정 허용 파일)
 - src/pages/Disclosure.tsx (fetch 타임아웃 상수)
@@ -36,5 +36,5 @@ Cowork
 - 프런트 타임아웃 350초로 변경
 - tsc + build 통과
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제

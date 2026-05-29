@@ -11,12 +11,46 @@
 ### Notes
 - (주의사항, 미해결 이슈)
 ### Next
-- (다음 에이전트 + 할 일)
+- (다음 행동 + 담당: Codex 또는 Human)
 -->
 
 # Handoff
 
 Use newest entries at the top.
+
+## 2026-05-30 12:10 Codex SURIT-HARNESS-CODEX-ONLY [완료]
+### Changed
+- `AGENTS.md` - Codex 단독 운영 규칙으로 문구 정리.
+- `CLAUDE.md` - 파일명은 유지하되 Codex 프로젝트 지침으로 진입 규칙/절대 규칙 갱신.
+- `README.md` - Vite 기본 템플릿 내용을 SURIT 프로젝트 및 Codex 하네스 안내로 교체.
+- `PROGRESS.md` - 최종 업데이트, Codex 단독 운영 방식, 앞으로 진행 계획, 효율 조언 갱신.
+- `.agent-harness/tasks/` - 템플릿과 기존 task 문서의 owner/Next 표현을 Codex 단독 기준으로 정리하고 `SURIT-HARNESS-CODEX-ONLY.md` 추가.
+- `.agent-harness/decisions.md`, `.agent-harness/verify.md` - Codex 단독 운영 결정과 검증 기준 보강.
+- `.agent-harness/locks.md` - 오래된 다중 에이전트 release 목록을 정리하고 active lock 중심 운영 파일로 축소.
+- `.agent-harness/handoff.md` - 최신 운영 기준 기록.
+
+### Verified
+- [x] `git status --short -uall` - 문서 파일 변경만 확인.
+- [x] `cd backend && python -m pytest -q` - 130 passed, 7 skipped.
+- [x] `npx tsc -p tsconfig.app.json --noEmit` - passed.
+- [x] `npx tsc -p tsconfig.node.json --noEmit` - passed.
+- [x] `npm run lint` - passed.
+- [x] `npm test` - 1 passed.
+- [x] `npm run build` - passed. Vite 500KB chunk warning only.
+- [x] `rg -n "Cowork|Claude \(|Claude/Cowork" .agent-harness/tasks --glob "!SURIT-HARNESS-CODEX-ONLY.md"` - no matches.
+- [x] `rg -n "Next: Codex 검증 \+ 푸시|검증 \+ 푸시" .agent-harness/tasks --glob "!SURIT-HARNESS-CODEX-ONLY.md"` - no matches.
+- [x] `rg -n "Handoff To|다음 에이전트" AGENTS.md CLAUDE.md README.md .agent-harness/tasks .agent-harness/verify.md .agent-harness/decisions.md .github` - self-documenting verify pattern 외 구 템플릿 표현 없음.
+- [x] `git diff --check` - whitespace 오류 없음.
+
+### Notes
+- 과거 `handoff.md` 본문에는 Claude/Cowork 기록을 삭제하지 않았다. 이는 실제 작업 이력 보존용이며, 최신 항목과 `AGENTS.md`가 현재 운영 기준이다.
+- 코드 파일 변경 없음. 전체 회귀 검증은 최초 Codex 단독 진행 기준선 확보를 위해 실행했고 모두 통과했다.
+- 진행 계획: 실제 PDF 배포 후 재테스트 → 투약 30일 기준 결정 → CI/검증 경로 최신화 → 실제 PDF 회귀 fixture 전략 순서 권장.
+- 효율 조언: 새 요청은 `태스크 목표 / 수정 허용 파일 / 검증 명령 / 커밋 메시지` 네 줄 중심으로 주면 Codex 단독 진행 속도가 가장 빠르다.
+
+### Next
+- Codex: 다음 작업부터 단독으로 구현·검증·handoff·커밋·푸시까지 진행.
+- Human: production/product 판단이 필요한 경우에만 최종 결정.
 
 ## 2026-05-30 08:40 Codex SURIT-BUG-012 [검증·정리·푸시 준비 완료]
 ### Changed

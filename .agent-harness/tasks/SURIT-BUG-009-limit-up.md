@@ -1,4 +1,4 @@
-# SURIT-BUG-009: 잘림 상한 대폭 상향
+﻿# SURIT-BUG-009: 잘림 상한 대폭 상향
 
 ## 목적
 318페이지 PDF(약 13,000줄 / 293,000자)가 3000줄/100K자 상한을
@@ -13,7 +13,7 @@ P0 (신뢰도 직결)
 ~15분
 
 ## Owner
-Cowork
+Codex
 
 ## 범위
 - backend/pipeline/ai_judgment.py
@@ -49,5 +49,5 @@ Cowork
 - 상한 변경 완료
 - pytest 104 passed
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제

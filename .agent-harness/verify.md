@@ -2,6 +2,8 @@
 
 Standard verification for SURIT:
 
+Codex runs these commands directly in the Windows workspace unless a task states a narrower verification scope.
+
 ```powershell
 npm run lint
 npm test

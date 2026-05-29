@@ -1,4 +1,4 @@
-# SURIT-BUG-008: 메리츠 간편심사 완전 제거
+﻿# SURIT-BUG-008: 메리츠 간편심사 완전 제거
 
 ## 목적
 메리츠 간편심사 판단 로직을 백엔드·프런트 전체에서 완전 제거한다.
@@ -13,7 +13,7 @@ P0 (신뢰도·성능 직결)
 ~1~2시간
 
 ## Owner
-Cowork
+Codex
 
 ## 범위 (수정 허용 파일)
 ### 백엔드
@@ -72,7 +72,7 @@ Disclosure.tsx에서:
 - pytest 전체 통과
 - tsc + build 통과
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제
 
 ## 비고

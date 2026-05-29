@@ -1,4 +1,4 @@
-# SURIT-007: Gemini PDF 네이티브 첨부 전환
+﻿# SURIT-007: Gemini PDF 네이티브 첨부 전환
 
 ## 목적
 현재 pdfplumber 텍스트 추출 → 잘림 → Gemini 텍스트 전달 방식을
@@ -17,7 +17,7 @@ P1 (정확도 직결)
 ~2~3시간
 
 ## Owner
-Cowork
+Codex
 
 ## 범위 (수정 허용 파일)
 - backend/pipeline/ai_judgment.py (Gemini 호출 방식 전환 핵심)
@@ -69,7 +69,7 @@ Cowork
 - truncation_warning 미발생
 - pytest 전체 통과
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제
 
 ## 비고

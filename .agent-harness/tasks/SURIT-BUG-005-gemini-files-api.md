@@ -1,4 +1,4 @@
-# SURIT-BUG-005: Gemini Files API 전환
+﻿# SURIT-BUG-005: Gemini Files API 전환
 
 ## 목적
 inline bytes 방식(Part.from_bytes)이 400 Bad Request를 유발하는
@@ -13,7 +13,7 @@ P0 (서비스 오류 직결)
 ~1시간
 
 ## Owner
-Cowork
+Codex
 
 ## 범위 (수정 허용 파일)
 - backend/pipeline/ai_judgment.py
@@ -58,7 +58,7 @@ cd backend && python -m pytest -q ← 120개 + 신규 통과
 - Files API 전환 완료
 - pytest 전체 통과 (120 + 신규)
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제
 
 ## 비고

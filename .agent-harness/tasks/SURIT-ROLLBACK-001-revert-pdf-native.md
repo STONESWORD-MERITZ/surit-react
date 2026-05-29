@@ -1,4 +1,4 @@
-# SURIT-ROLLBACK-001: PDF 네이티브 첨부 롤백 + 텍스트 필터링 강화
+﻿# SURIT-ROLLBACK-001: PDF 네이티브 첨부 롤백 + 텍스트 필터링 강화
 
 ## 목적
 SURIT-007 ~ BUG-005(PDF 네이티브 첨부 시도)를 롤백하고
@@ -49,7 +49,7 @@ cd backend && python -m pytest -q
 - 텍스트 필터링 강화 적용
 - pytest 전체 통과
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제
 
 ## 진단 메모 (1단계 확인)

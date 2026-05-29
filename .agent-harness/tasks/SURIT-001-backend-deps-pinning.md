@@ -1,4 +1,4 @@
-# SURIT-001: 백엔드 의존성 버전 고정
+﻿# SURIT-001: 백엔드 의존성 버전 고정
 
 ## 목적
 `backend/requirements.txt`의 미고정 의존성을 현재 설치 버전 기준으로 `==` 고정하여
@@ -11,7 +11,7 @@ P1 (출시 안정성 직결)
 ~15분
 
 ## Owner
-Cowork (requirements.txt 코드 수정 작업)
+Codex (requirements.txt 코드 수정 작업)
 
 ## 범위 (수정 허용 파일)
 - `backend/requirements.txt`

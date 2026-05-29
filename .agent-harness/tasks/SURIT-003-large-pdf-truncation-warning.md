@@ -1,4 +1,4 @@
-# SURIT-003: 초대용량 PDF 잘림 사용자 경고
+﻿# SURIT-003: 초대용량 PDF 잘림 사용자 경고
 
 ## 목적
 현재 pdf_parser.py의 filtered_lines·30,000자 잘림이 무경고으로 처리된다.
@@ -12,7 +12,7 @@ P2
 ~20분
 
 ## Owner
-Cowork (백엔드 파이프라인 + 프런트 경고 표시)
+Codex (백엔드 파이프라인 + 프런트 경고 표시)
 
 ## 범위 (수정 허용 파일)
 - backend/pipeline/pdf_parser.py (잘림 감지 + 플래그 반환)
@@ -61,7 +61,7 @@ npm run build
 - pytest 전체 통과 (97 + 신규)
 - tsc + build 통과
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제
 
 ## 진단 메모 (1단계 결과)

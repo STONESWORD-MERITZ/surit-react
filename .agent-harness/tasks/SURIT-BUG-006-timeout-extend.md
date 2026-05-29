@@ -1,4 +1,4 @@
-# SURIT-BUG-006: 분석 타임아웃 연장
+﻿# SURIT-BUG-006: 분석 타임아웃 연장
 
 ## 목적
 현재 서버측 분석 타임아웃(170초)이 318페이지 대용량 PDF 처리 시
@@ -12,7 +12,7 @@ P0 (서비스 오류 직결)
 ~10분
 
 ## Owner
-Cowork
+Codex
 
 ## 범위 (수정 허용 파일)
 - backend/main.py (타임아웃 상수)
@@ -35,5 +35,5 @@ Cowork
 ## 완료 조건
 - main.py 타임아웃 300초로 변경
 - handoff.md 표준 포맷 기록
-- Next: Codex 검증 + 푸시
+- Next: Codex 단독 검증·푸시
 - locks.md 잠금 해제
