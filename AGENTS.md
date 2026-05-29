@@ -1,74 +1,71 @@
-# Agent Collaboration Rules
+# Codex Operating Rules
 
-This repository uses a lightweight harness so Claude, Codex, and the user can work on the same project without losing context.
+This repository is now run with Codex as the single working agent.
 
 ## Project
 
 - Name: SURIT
 - Local path: `C:\Users\18_rk\surit-react`
 - Task prefix: `SURIT`
-- Existing Claude guide: `CLAUDE.md`
+- Legacy project guide: `CLAUDE.md`
 
-Claude should continue following `CLAUDE.md`. When this file and `CLAUDE.md` overlap, follow both. If there is a conflict, prefer task-specific instructions in `.agent-harness/tasks/` and record the conflict in `.agent-harness/handoff.md`.
+`CLAUDE.md` is kept as a legacy knowledge and convention document. Codex should read it when project behavior, stack details, or historical preferences matter, but new work should follow this file and the active task file first.
 
 ## Agent Roles
 
-- Claude: architecture review, broad code reading, first-pass implementation, refactor proposals.
-- Codex: implementation follow-up, verification, tests, local browser checks, bug fixes, scoped Git staging, commit, and push when the task or user asks to publish.
-- User: priority, product direction, final approval for product decisions and risky or destructive actions.
+- Codex: planning, code reading, architecture judgment, implementation, refactoring, tests, lint/build verification, browser smoke checks, handoff notes, scoped Git staging, commit, and push when the user asks to publish.
+- User: priority, product direction, production approval, and decisions that affect business behavior or risky data changes.
+- Claude/Cowork: not part of the default workflow. Old Claude entries in `.agent-harness/handoff.md` are historical context only.
 
-Roles may change per task, but each task must name one current owner.
+Each active task should have one current owner: Codex, unless the user explicitly says otherwise.
 
 ## Required Workflow
 
 1. Read this file first.
-2. Read `CLAUDE.md` when using Claude or when project behavior preferences matter.
-3. Read the relevant task in `.agent-harness/tasks/`.
-4. Check `.agent-harness/locks.md` before editing files.
-5. Check `git status --short` before making changes.
-6. Edit only files inside the task scope.
-7. Run the verification commands listed in the task or `.agent-harness/verify.md`.
-8. Update `.agent-harness/handoff.md` with changed files, verification results, and remaining issues.
-9. If the task or user asks to publish, Codex checks `git status --short`, stages only task-scoped files, creates a task-labeled commit, pushes the branch, and records the result in `handoff.md`.
-10. Release any file locks in `.agent-harness/locks.md` when done.
+2. Read `.agent-harness/handoff.md` for the latest project state.
+3. Read `CLAUDE.md` only as legacy project context when useful.
+4. Read or create the relevant task file in `.agent-harness/tasks/`.
+5. Check `.agent-harness/locks.md` before editing files.
+6. Check `git status --short -uall` before making changes.
+7. Keep edits inside the task scope unless the user approves an expanded scope.
+8. Run the verification commands listed in the task or `.agent-harness/verify.md`.
+9. Update `.agent-harness/handoff.md` with changed files, verification results, notes, and remaining issues.
+10. Release any file locks in `.agent-harness/locks.md`.
+11. If the task or user asks to publish, stage only task-scoped files, create a task-labeled commit, push the branch, and record the result.
 
 ## Safety Rules
 
-- Do not overwrite work from another agent or the user.
-- Do not modify unrelated files.
+- Do not overwrite user work or unrelated local changes.
+- Do not stage, commit, or push unrelated files.
 - Do not commit generated build output unless the task explicitly asks for it.
 - Do not guess hidden requirements; record assumptions in the task or handoff.
 - If verification cannot be run, write the exact reason in `handoff.md`.
-- Keep task changes small enough that another agent can review them quickly.
-- Do not stage, commit, or push unrelated user or agent changes.
-- If unrelated changes are present, Codex must leave them unstaged and mention them in the final report.
+- Keep task changes small enough to review quickly.
+- For production-impacting changes, finish local verification first and leave final live validation to the user unless explicitly asked to check deployment.
+
+## Standard Verification
+
+Use `.agent-harness/verify.md` as the source of truth. Current standard commands:
+
+```powershell
+npm run lint
+npm test
+npm run build
+```
+
+Backend changes normally also require:
+
+```powershell
+cd backend
+python -m pytest -q
+```
+
+For UI changes, also run the app locally and perform a browser smoke check when practical.
 
 ## Harness Files
 
-- `.agent-harness/tasks/`: task queue and task templates.
-- `.agent-harness/handoff.md`: latest implementation notes and next-agent handoff.
-- `.agent-harness/decisions.md`: project decisions that should persist.
+- `.agent-harness/tasks/`: task queue and task-specific instructions.
+- `.agent-harness/handoff.md`: latest implementation notes and completion records.
+- `.agent-harness/decisions.md`: persistent decisions.
 - `.agent-harness/locks.md`: temporary file ownership during active work.
-- `.agent-harness/verify.md`: standard commands for validation.
-
-## 에이전트 역할 분담
-
-### Claude (Cowork) — 주로 담당
-- 큰 설계, 아키텍처 변경
-- 기존 코드 구조 파악 후 리팩터링
-- UI/UX 구현 (React 컴포넌트, 스타일)
-- 보고서/문서 작성
-
-### Codex — 주로 담당
-- 추가 구현, 버그 수정
-- 테스트 작성/보강
-- 검증 실행 (lint, test, build)
-- 로컬 실행 확인
-- 검증 통과 시 git 반영 — 태스크 범위 파일만 `git add` → `git commit` → `git push origin main`
-- 커밋 메시지: 한국어, `{태스크ID}: {변경 요지}` 형식 (필요 시 끝에 `(#{테스트/변경 요약})` 부기 — 예: `SURIT-002: 처방 PDF 분류 우선순위 보정`)
-
-### 공통 규칙
-- 한 태스크 안에서 owner는 한 명만
-- 리뷰는 owner가 아닌 쪽이 수행
-- 사람이 최종 승인
-- 본인이 처리할 수 없는 영역이면 handoff의 Next에 다른 에이전트 지정
+- `.agent-harness/verify.md`: standard validation commands.
