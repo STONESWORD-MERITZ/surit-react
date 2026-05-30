@@ -18,6 +18,30 @@
 
 Use newest entries at the top.
 
+## 2026-05-30 09:08 Codex SURIT-PROGRESS-001 [완료]
+### Changed
+- `PROGRESS.md` - 메리츠 추천연도 완료 항목/메리츠 룰 출처 백로그 제거, 동일 자료 결과 결정성 보장을 P0 우선 과제로 추가.
+- `.agent-harness/decisions.md` - 동일 입력 PDF의 결정론 고지 결과는 반복 실행 시 안정적이어야 한다는 durable decision 추가.
+- `.agent-harness/tasks/SURIT-PROGRESS-001-deterministic-disclosure.md` - 문서 정리 및 후속 결정성 보장 태스크 기록 추가.
+- `.agent-harness/handoff.md`, `.agent-harness/locks.md` - 작업 기록 및 잠금 관리.
+
+### Verified
+- [x] `git diff --check` - whitespace 오류 없음.
+- [x] `rg -n "메리츠 추천연도|메리츠 룰 출처" PROGRESS.md` - no matches.
+- [x] `rg -n "동일 자료 결과 결정성 보장|Deterministic Disclosure Results" PROGRESS.md .agent-harness/decisions.md` - expected matches 확인.
+- [x] `npm run lint` - passed.
+- [x] `npm test` - 1 passed.
+- [x] `npm run build` - passed. Vite 500KB chunk warning only.
+
+### Notes
+- 사용자가 제공한 PDF 비밀번호는 민감정보 성격이 있어 저장소 문서에 직접 기록하지 않았다.
+- 이번 변경은 문서/계획 정리이며, 실제 동일 자료 100회 결정성 보장 구현은 후속 코드 태스크로 진행한다.
+- 결정론 고정 대상: 고지 대상 질병코드, 질병명, 건수, 질문 분류, 입원/수술/통원/투약 근거. AI가 필요한 추가검사/재검사 소견 문장 또는 보조 판단 설명은 변동 가능 영역으로 분리.
+
+### Next
+- Codex: 후속 코드 태스크에서 동일 PDF 반복 실행 결과의 deterministic subset 비교 테스트/정렬 보정 구현.
+- Human: 실제 운영 결과에서 변동 사례가 있으면 PDF 세트와 “변한 항목”을 함께 전달.
+
 ## 2026-05-30 12:10 Codex SURIT-HARNESS-CODEX-ONLY [완료]
 ### Changed
 - `AGENTS.md` - Codex 단독 운영 규칙으로 문구 정리.
