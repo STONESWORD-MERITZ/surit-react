@@ -50,7 +50,7 @@ const STATS = [
   { value: 9,   suffix: "차", label: "최신 KCD 질병분류 기준 반영" },
   { value: 7,   suffix: "개", label: "건강체·간편 알릴의무 자동 분류" },
   { value: 3,   suffix: "종", label: "기본·세부·처방 PDF 교차 분석" },
-  { value: 5,   suffix: "분", label: "업로드부터 결과 정리까지" },
+  { value: 1,   suffix: "회", label: "민감정보 동의 후 분석 시작" },
 ];
 
 const ROADMAP = [
@@ -369,7 +369,7 @@ export default function Home() {
               지금 바로 확인하세요
             </h2>
             <p className="mt-5 text-[15px] leading-8 text-gray-400 break-keep">
-              PDF 3장이면 충분합니다. 가입 전 확인해야 할 고지 리스크를 빠르게 정리합니다.
+              PDF 3장이면 충분합니다. 가입 전 확인해야 할 고지 리스크를 자료량에 따라 순차적으로 정리합니다.
             </p>
             <Link
               to="/check"

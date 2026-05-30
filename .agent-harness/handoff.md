@@ -18,6 +18,34 @@
 
 Use newest entries at the top.
 
+## 2026-05-30 14:06 Codex SURIT-LAUNCH-002 [완료]
+### Changed
+- `src/components/Footer.tsx`, `src/pages/PrivacyPolicy.tsx`, `src/pages/Terms.tsx` - 공개 약관/개인정보/푸터의 화면상 TODO·등록 예정 placeholder 제거, BOHUMFIT 문의/시행일 정보 반영.
+- `src/pages/Home.tsx`, `src/components/Layout.tsx`, `src/App.tsx` - "5분" 속도 단정 표현 완화, 미완성 보장분석 내비게이션 숨김 및 직접 접근 시 준비 중 안내로 전환.
+- `public/og-image.svg` - 기존 SURIT/`surit-react.vercel.app` 노출을 BOHUMFIT/`bohumfit.ai`로 교체.
+- `BOHUMFIT_OPEN_RISK_CHECKLIST.md` - 실제 확인된 도메인/CORS/Auth smoke 결과와 남은 운영·법무·실제 PDF QA 게이트를 최신화.
+- `.agent-harness/tasks/SURIT-LAUNCH-002-final-open-check.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md` - 하네스 태스크 기록 및 잠금 관리.
+
+### Verified
+- [x] `cd backend && python -m pytest -q` - 133 passed, 7 skipped.
+- [x] `npx tsc -p tsconfig.app.json --noEmit` - passed.
+- [x] `npx tsc -p tsconfig.node.json --noEmit` - passed.
+- [x] `npm run lint` - passed.
+- [x] `npm test` - 1 passed.
+- [x] `npm run build` - passed. Vite 500KB chunk warning only.
+- [x] `git diff --check` - whitespace 오류 없음.
+- [x] Local dev server smoke - `/`, `/login`, `/privacy`, `/terms`, `/before-after` all 200 and BOHUMFIT shell present.
+- [x] Live smoke - `bohumfit.ai` 200, `www.bohumfit.ai` 308 -> `bohumfit.ai`, unauth `/api/analyze` 401, CORS OPTIONS for apex/www 200.
+
+### Notes
+- Live `/api/health` still reports `env:"development"` and `sentry:false`; Railway `SERVICE_ENV=production`, explicit `CORS_ORIGINS`, and Sentry decision remain console-side launch gates.
+- Exact business registration details were not provided. Public placeholder text is removed, but Human should replace/approve privacy officer/contact/effective date and business/legal details before final public launch.
+- Actual authenticated 오성심 PDF 3종 반복 분석 was not run in this turn because it requires a logged-in production session/JWT. Keep as SURIT-QA-002 launch gate.
+
+### Next
+- Human: Railway env/Sentry decision + legal/business info final review.
+- Human/Codex: 로그인 세션 확보 후 오성심 PDF 3종 end-to-end 반복 분석으로 고지 질병코드·질병명·건수·질문 분류 동일성 확인.
+
 ## 2026-05-30 12:40 Codex SURIT-LAUNCH-001 [완료]
 ### Changed
 - `index.html`, `src/components/*`, `src/pages/*` - 외부 노출 브랜드를 BOHUMFIT/보험핏으로 전환하고 단정적 가입·인수 표현을 완화.

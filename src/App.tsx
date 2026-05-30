@@ -6,7 +6,6 @@ import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Home from "./pages/Home";
 import Disclosure from "./pages/Disclosure";
-import BeforeAfter from "./pages/BeforeAfter";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -31,6 +30,21 @@ function FallbackUI() {
         </button>
       </div>
     </div>
+  );
+}
+
+function BeforeAfterComingSoon() {
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">
+        Coming Soon
+      </p>
+      <h1 className="mt-3 text-2xl font-extrabold text-gray-950">보장분석은 준비 중입니다</h1>
+      <p className="mt-3 max-w-2xl text-sm leading-7 text-gray-600 break-keep">
+        현재 정식 오픈 범위는 건강보험심평원 PDF 기반 고지 리스크 점검입니다.
+        기존 보장과 신규 제안서를 비교하는 보장분석 기능은 검증이 끝난 뒤 공개됩니다.
+      </p>
+    </section>
   );
 }
 
@@ -61,7 +75,7 @@ function App() {
           />
           <Route
             path="before-after"
-            element={<ProtectedRoute><BeforeAfter /></ProtectedRoute>}
+            element={<ProtectedRoute><BeforeAfterComingSoon /></ProtectedRoute>}
           />
           <Route path="why" element={<WhyDisclosure />} />
           <Route path="privacy" element={<PrivacyPolicy />} />

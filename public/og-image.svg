@@ -9,22 +9,22 @@
   <rect width="1200" height="630" fill="url(#bg)"/>
   <g transform="translate(80,180)">
     <text x="0" y="0" font-family="system-ui, -apple-system, 'Segoe UI', Pretendard, sans-serif"
-          font-size="28" font-weight="700" fill="#4F46E5">SURIT</text>
+          font-size="28" font-weight="700" fill="#4F46E5">BOHUMFIT</text>
     <text x="0" y="100" font-family="system-ui, -apple-system, Pretendard, sans-serif"
           font-size="76" font-weight="800" fill="#0F172A">
-      PDF 한 번 올리면,
+      가입 전 고지 리스크를
     </text>
     <text x="0" y="195" font-family="system-ui, -apple-system, Pretendard, sans-serif"
           font-size="76" font-weight="800" fill="#0F172A">
-      알릴의무 한 화면에.
+      한 화면에 정리합니다
     </text>
     <text x="0" y="270" font-family="system-ui, -apple-system, Pretendard, sans-serif"
           font-size="26" font-weight="500" fill="#475569">
-      건강보험심평원 PDF 로 5분 안에 정리하는 보험 고지 점검 플랫폼
+      보험사 심사 전 참고자료를 제공하는 AI 보조 점검 서비스
     </text>
   </g>
   <g transform="translate(80,540)">
     <text x="0" y="0" font-family="system-ui, -apple-system, Pretendard, sans-serif"
-          font-size="22" font-weight="600" fill="#64748B">surit-react.vercel.app</text>
+          font-size="22" font-weight="600" fill="#64748B">bohumfit.ai</text>
   </g>
 </svg>

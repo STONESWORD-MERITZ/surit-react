@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 
+const EFFECTIVE_DATE = "2026-05-30";
+
 const SECTIONS: { title: string; body: string }[] = [
   {
     title: "제1조 (목적)",
@@ -42,7 +44,7 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "부칙",
-    body: "본 약관은 TODO(시행일자)부터 시행합니다.",
+    body: `본 약관은 ${EFFECTIVE_DATE}부터 시행합니다.`,
   },
 ];
 
@@ -50,7 +52,7 @@ export default function Terms() {
   return (
     <main className="mx-auto max-w-3xl px-5 py-10">
       <h1 className="text-2xl font-extrabold text-gray-900">이용약관</h1>
-      <p className="mt-2 text-xs text-gray-400">최종 개정 시행일: TODO</p>
+      <p className="mt-2 text-xs text-gray-400">최종 개정 시행일: {EFFECTIVE_DATE}</p>
       <div className="mt-8 space-y-7">
         {SECTIONS.map((s) => (
           <section key={s.title}>
