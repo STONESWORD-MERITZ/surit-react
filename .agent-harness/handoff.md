@@ -18,6 +18,29 @@
 
 Use newest entries at the top.
 
+## 2026-05-30 20:28 Codex BOHUMFIT-002 [완료]
+### Changed
+- Local git config - `origin` URL을 `https://github.com/STONESWORD-MERITZ/surit-react.git`에서 `https://github.com/STONESWORD-MERITZ/bohumfit.git`로 전환.
+- `package.json` - `"name": "surit-react"` -> `"name": "bohumfit"`.
+- `package-lock.json` - 최상위 `name` 및 `packages[""].name`을 `bohumfit`으로 정리. `npm install`은 실행하지 않았고 의존성 변경 없음.
+- `.agent-harness/tasks/BOHUMFIT-002-remote-and-name.md`, `.agent-harness/handoff.md`, `.agent-harness/locks.md` - 태스크 기록 및 잠금 관리.
+
+### Verified
+- [x] 교체 전 `git remote -v` - fetch/push 모두 `https://github.com/STONESWORD-MERITZ/surit-react.git`.
+- [x] 교체 후 `git remote -v` - fetch/push 모두 `https://github.com/STONESWORD-MERITZ/bohumfit.git`.
+- [x] `git fetch origin` - 정상 완료. 이동 경고 없음. 새 dependabot remote branches 2개 수신.
+- [x] `Select-String package*.json` - `surit-react` name 잔존 없음, `bohumfit` 3곳 확인.
+- [x] `npx tsc -p tsconfig.app.json --noEmit` - passed.
+- [x] `npx tsc -p tsconfig.node.json --noEmit` - passed.
+- [x] `npm run build` - passed. Vite 500KB chunk warning only.
+- [x] `git diff --check` - whitespace 오류 없음.
+
+### Notes
+- Vercel/Railway/Supabase/Sentry 대시보드 설정, CORS/API URL, 로컬 폴더명 `surit-react`, `SURIT-*` 이력 주석/태스크ID는 사용자 지시대로 변경하지 않음.
+
+### Next
+- Human: 별도 조치 없음. 필요 시 추후 CORS/API URL 또는 로컬 폴더명까지 정리할지 별도 태스크로 결정.
+
 ## 2026-05-30 20:05 Codex BOHUMFIT-001 [완료]
 ### Changed
 - `.agent-harness/tasks/BOHUMFIT-001-rebrand-audit.md` - SURIT -> BOHUMFIT 리브랜딩 감사 태스크 기록 생성.
