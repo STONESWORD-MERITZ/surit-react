@@ -18,6 +18,29 @@
 
 Use newest entries at the top.
 
+## 2026-05-30 09:18 Codex SURIT-BUG-013 [완료]
+### Changed
+- `src/pages/Disclosure.tsx` - 결과 카드의 통원/입원/수술/투약 칩을 질문별 필요 지표만 표시하도록 분기.
+- `src/pages/Disclosure.tsx` - 건강체 Q3와 간편 Q2에서 추가검사 의심/치료 중/종결 보조 태그와 상세 문구를 미노출.
+- `.agent-harness/tasks/SURIT-BUG-013-question-specific-display.md` - 태스크 기록 추가.
+- `.agent-harness/handoff.md`, `.agent-harness/locks.md` - 작업 기록 및 잠금 관리.
+
+### Verified
+- [x] `npx tsc -p tsconfig.app.json --noEmit` - passed.
+- [x] `npm run lint` - passed.
+- [x] `npm test` - 1 passed.
+- [x] `npm run build` - passed. Vite 500KB chunk warning only.
+- [x] `git diff --check` - whitespace 오류 없음.
+
+### Notes
+- 백엔드 결정론 결과는 변경하지 않았다. 이번 변경은 프런트 결과 카드 표시 범위 제한만 수행.
+- 건강체 Q3: 입원/수술/통원7+/투약30+ 발동 근거만 표시.
+- 간편 Q2: 입원·수술 지표만 표시.
+- U071 코로나19는 실제 결과에 포함되는 것이 맞다는 사용자 결정을 반영해 별도 변경 없음.
+
+### Next
+- Human: 배포 후 오성심 PDF 화면에서 건강체 Q3, 간편 Q2 카드의 칩/보조 태그가 과노출되지 않는지 확인.
+
 ## 2026-05-30 09:08 Codex SURIT-PROGRESS-001 [완료]
 ### Changed
 - `PROGRESS.md` - 메리츠 추천연도 완료 항목/메리츠 룰 출처 백로그 제거, 동일 자료 결과 결정성 보장을 P0 우선 과제로 추가.

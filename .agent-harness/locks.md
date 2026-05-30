@@ -15,6 +15,7 @@ Use this file to record active Codex file ownership during a task.
 
 ## Released
 
+- 2026-05-30 `SURIT-BUG-013` - Codex - question-specific disclosure display completed; locks released.
 - 2026-05-30 `SURIT-PROGRESS-001` - Codex - progress determinism plan updated; locks released.
 - 2026-05-30 `SURIT-HARNESS-CODEX-ONLY` - Codex - final check/plan/publish completed; locks released.
 - 2026-05-30 `SURIT-HARNESS-CODEX-ONLY` - Codex - documentation cleanup completed; locks released.

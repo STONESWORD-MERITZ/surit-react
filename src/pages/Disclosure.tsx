@@ -194,6 +194,58 @@ function cleanQTitle(qTitle: string): string {
   return qTitle.replace(/^\[.*?\]\s*/, "");
 }
 
+function getMetricVisibility(item: SummaryItem, qNum: string, isEasy: boolean) {
+  const detail = item.detail || "";
+  const surgN = item.surgery_count ?? item.surgeries?.length ?? 0;
+  const hasInpatient = (item.inpatient ?? 0) > 0 || (item.inpatient_count ?? 0) > 0;
+  const hasSurgery = surgN > 0;
+  const hasVisitTrigger = (item.visit ?? 0) >= 7 || detail.includes("통원");
+  const hasMedTrigger = (item.med_days ?? 0) >= 30 || detail.includes("투약") || detail.includes("처방");
+
+  if (isEasy) {
+    return {
+      visit: false,
+      inpatient: qNum === "Q2" && hasInpatient,
+      inpatientCount: qNum === "Q2" && (item.inpatient_count ?? 0) > 0,
+      surgery: qNum === "Q2" && hasSurgery,
+      med: false,
+    };
+  }
+
+  if (qNum === "Q1") {
+    return {
+      visit: false,
+      inpatient: hasInpatient,
+      inpatientCount: (item.inpatient_count ?? 0) > 0,
+      surgery: hasSurgery,
+      med: hasMedTrigger,
+    };
+  }
+
+  if (qNum === "Q3") {
+    return {
+      visit: hasVisitTrigger,
+      inpatient: hasInpatient,
+      inpatientCount: (item.inpatient_count ?? 0) > 0,
+      surgery: hasSurgery,
+      med: hasMedTrigger,
+    };
+  }
+
+  return {
+    visit: false,
+    inpatient: false,
+    inpatientCount: false,
+    surgery: false,
+    med: false,
+  };
+}
+
+function shouldShowClinicalReview(qNum: string, isEasy: boolean) {
+  if (isEasy) return false;
+  return qNum === "Q1" || qNum === "Q2";
+}
+
 function AllDiseaseSection({ diseases }: { diseases: DiseaseSummary[] }) {
   const [open, setOpen] = useState(false);
 
@@ -282,11 +334,18 @@ function DiseaseCard({ item, qNum, isEasy = false }: { item: SummaryItem; qNum: 
   const surgN = item.surgery_count ?? item.surgeries?.length ?? 0;
   const procN = item.procedures?.length ?? 0;
   const suspN = item.surgery_suspected?.length ?? 0;
+  const metric = getMetricVisibility(item, qNum, isEasy);
+  const showClinicalReview = shouldShowClinicalReview(qNum, isEasy);
   const period = item.first_date && item.latest_date && item.first_date !== item.latest_date
     ? `${item.first_date} ~ ${item.latest_date}`
     : (item.first_date || "");
-  // SURIT-BUG-012: 간편 탭은 통원·투약·의심 태그 미노출 (입원·수술 중심)
-  const hasBottom = !isEasy && (suspN > 0 || item.additional_test_hit || item.treatment_ongoing != null);
+  const hasMetricChips = metric.visit || metric.inpatient || metric.inpatientCount || metric.surgery || metric.med;
+  const hasClinicalChips = showClinicalReview && (
+    procN > 0 || suspN > 0 || item.additional_test_hit || item.treatment_ongoing === true || item.treatment_ongoing === false
+  );
+  const hasBottom = showClinicalReview && (
+    suspN > 0 || item.additional_test_hit || item.treatment_ongoing != null
+  );
 
   return (
     <article className={`border-l-4 px-5 py-4 ${RISK[risk].border}`}>
@@ -327,26 +386,30 @@ function DiseaseCard({ item, qNum, isEasy = false }: { item: SummaryItem; qNum: 
         </div>
       )}
 
-      <div className="mb-2 flex flex-wrap gap-2">
-        {!isEasy && <Chip label={`통원 ${item.visit ?? 0}회`} tone={(item.visit ?? 0) >= 7 ? "amber" : "gray"} />}
-        <Chip label={`입원 ${item.inpatient ?? 0}일`} tone={(item.inpatient ?? 0) > 0 ? "red" : "gray"} />
-        <Chip label={`입원 ${item.inpatient_count ?? 0}회`} tone={(item.inpatient_count ?? 0) > 0 ? "red-light" : "gray"} />
-        <Chip label={`수술 ${surgN}건`} tone={surgN > 0 ? "red" : "gray"} />
-        {!isEasy && (
-          <Chip
-            label={`투약 ${item.med_days ?? 0}일`}
-            tone={(item.med_days ?? 0) >= 30 ? "amber" : (item.med_days ?? 0) > 0 ? "emerald" : "gray"}
-          />
-        )}
-      </div>
+      {hasMetricChips && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {metric.visit && <Chip label={`통원 ${item.visit ?? 0}회`} tone={(item.visit ?? 0) >= 7 ? "amber" : "gray"} />}
+          {metric.inpatient && <Chip label={`입원 ${item.inpatient ?? 0}일`} tone="red" />}
+          {metric.inpatientCount && <Chip label={`입원 ${item.inpatient_count ?? 0}회`} tone="red-light" />}
+          {metric.surgery && <Chip label={`수술 ${surgN}건`} tone="red" />}
+          {metric.med && (
+            <Chip
+              label={`투약 ${item.med_days ?? 0}일`}
+              tone={(item.med_days ?? 0) >= 30 ? "amber" : (item.med_days ?? 0) > 0 ? "emerald" : "gray"}
+            />
+          )}
+        </div>
+      )}
 
-      <div className="flex flex-wrap gap-2">
-        {procN > 0 && <Chip label={`시술 ${procN}건`} tone="orange" />}
-        {!isEasy && suspN > 0 && <Chip label={`수술 의심 ${suspN}건`} tone="gray-light" />}
-        {!isEasy && item.additional_test_hit && <Chip label="추가검사 의심" tone="indigo" />}
-        {!isEasy && item.treatment_ongoing === true && <Chip label="치료 중" tone="rose" />}
-        {!isEasy && item.treatment_ongoing === false && <Chip label="종결" tone="emerald" />}
-      </div>
+      {hasClinicalChips && (
+        <div className="flex flex-wrap gap-2">
+          {procN > 0 && <Chip label={`시술 ${procN}건`} tone="orange" />}
+          {suspN > 0 && <Chip label={`수술 의심 ${suspN}건`} tone="gray-light" />}
+          {item.additional_test_hit && <Chip label="추가검사 의심" tone="indigo" />}
+          {item.treatment_ongoing === true && <Chip label="치료 중" tone="rose" />}
+          {item.treatment_ongoing === false && <Chip label="종결" tone="emerald" />}
+        </div>
+      )}
 
       {hasBottom && (
         <div className="mt-3 space-y-1 border-t border-gray-100 pt-2.5 text-xs leading-relaxed">
